@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pulsar/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,7 +38,17 @@ void main() {
       find.byType(DayGalaxyScreen),
     );
     expect(dayScreen.controller.count(dayScreen.day, 0), 1);
+    expect(dayScreen.controller.events, hasLength(1));
     expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(find.text('记录'));
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('近 7 天能量'), findsOneWidget);
+    expect(find.text('28 天活跃场'), findsOneWidget);
+    expect(find.text('周一 · 上肢推力'), findsOneWidget);
   });
 
   testWidgets('底栏和训练计划按钮均可点击', (tester) async {

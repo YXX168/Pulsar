@@ -255,7 +255,7 @@ class LightClusterPainter extends CustomPainter {
     final phase = animation.value;
     final theta = phase * math.pi * 2;
     final center = Offset(size.width / 2, size.height / 2);
-    final base = size.width * (hero ? .24 : .22);
+    final base = size.width * (hero ? .27 : .25);
     final breath = 1 + math.sin(theta) * .025;
     final clusterRadius = base * breath;
 
@@ -290,6 +290,16 @@ class LightClusterPainter extends CustomPainter {
       tilt: .68,
       alpha: .18,
       nodeRadius: 1.15,
+    );
+    _drawOrbit(
+      canvas,
+      center,
+      theta * .19 + 3.4,
+      width: clusterRadius * 2.9,
+      height: clusterRadius * .78,
+      tilt: .24,
+      alpha: .13,
+      nodeRadius: .85,
     );
 
     // The main light mass has a diffuse boundary and a warm-white center.
@@ -413,10 +423,35 @@ class LightClusterPainter extends CustomPainter {
           stops: const [0, .26, .68, 1],
         ).createShader(bounds),
     );
+    for (var segment = 0; segment < 3; segment++) {
+      canvas.drawArc(
+        bounds,
+        motion + segment * 2.08,
+        .28 + segment * .05,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = segment == 0 ? 1.05 : .55
+          ..strokeCap = StrokeCap.round
+          ..color = palette.core.withValues(alpha: alpha * (1 - segment * .2)),
+      );
+    }
     final node = Offset(
       math.cos(motion) * width / 2,
       math.sin(motion) * height / 2,
     );
+    for (var trail = 3; trail >= 1; trail--) {
+      final trailAngle = motion - trail * .045;
+      canvas.drawCircle(
+        Offset(
+          math.cos(trailAngle) * width / 2,
+          math.sin(trailAngle) * height / 2,
+        ),
+        nodeRadius * (.28 + (3 - trail) * .12),
+        Paint()
+          ..color = palette.edge.withValues(alpha: .10 + (3 - trail) * .08),
+      );
+    }
     canvas.drawCircle(
       node,
       nodeRadius,

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'models/workout.dart';
+import 'models/training_event.dart';
 import 'services/storage.dart';
 import 'widgets/liquid_orb.dart';
+import 'widgets/galaxy_scene.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -71,10 +73,12 @@ class PulsarController extends ChangeNotifier {
   bool ready = false;
   List<WorkoutDay> plan = [];
   Map<String, Map<int, int>> completed = {};
+  List<TrainingEvent> events = [];
 
   Future<void> initialize() async {
     plan = await storage.loadPlan();
     completed = await storage.loadSets();
+    events = await storage.loadEvents();
     ready = true;
     notifyListeners();
   }
@@ -95,12 +99,84 @@ class PulsarController extends ChangeNotifier {
     return total == 0 ? 0 : doneSets(day) / total;
   }
 
-  Future<void> setCount(WorkoutDay day, int index, int value) async {
+  Future<void> setCount(
+    WorkoutDay day,
+    int index,
+    int value, {
+    bool recordSet = false,
+  }) async {
     completed.putIfAbsent(day.keyName, () => {});
     completed[day.keyName]![index] = value;
+    if (recordSet && index >= 0 && index < day.exercises.length) {
+      events.insert(
+        0,
+        TrainingEvent(
+          timestamp: DateTime.now(),
+          dayKey: day.keyName,
+          dayLabel: day.day,
+          workoutTitle: day.title,
+          exerciseName: day.exercises[index].name,
+        ),
+      );
+    }
     notifyListeners();
     await storage.saveSets(completed);
+    if (recordSet) await storage.saveEvents(events);
   }
+
+  int setsOnDate(DateTime date) => events.where((event) {
+    final time = event.timestamp;
+    return time.year == date.year &&
+        time.month == date.month &&
+        time.day == date.day;
+  }).length;
+
+  int get activeDays => events.map((event) => event.dateKey).toSet().length;
+
+  int get currentStreak {
+    final active = events.map((event) => event.dateKey).toSet();
+    if (active.isEmpty) return 0;
+    var cursor = DateTime.now();
+    if (!active.contains(_dateKey(cursor))) {
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+    var streak = 0;
+    while (active.contains(_dateKey(cursor))) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+    return streak;
+  }
+
+  List<DailyTrainingSummary> get trainingSummaries {
+    final grouped = <String, List<TrainingEvent>>{};
+    for (final event in events) {
+      grouped
+          .putIfAbsent('${event.dateKey}|${event.dayKey}', () => [])
+          .add(event);
+    }
+    final summaries = grouped.values.map((items) {
+      final first = items.first;
+      return DailyTrainingSummary(
+        date: DateTime(
+          first.timestamp.year,
+          first.timestamp.month,
+          first.timestamp.day,
+        ),
+        dayKey: first.dayKey,
+        dayLabel: first.dayLabel,
+        workoutTitle: first.workoutTitle,
+        sets: items.length,
+        exerciseCount: items.map((event) => event.exerciseName).toSet().length,
+      );
+    }).toList()..sort((a, b) => b.date.compareTo(a.date));
+    return summaries;
+  }
+
+  String _dateKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
 
   Future<void> updatePlan() async {
     notifyListeners();
@@ -109,8 +185,10 @@ class PulsarController extends ChangeNotifier {
 
   Future<void> clearRecords() async {
     completed = {};
+    events = [];
     notifyListeners();
     await storage.saveSets(completed);
+    await storage.saveEvents(events);
   }
 }
 
@@ -366,7 +444,11 @@ class GalaxyScreen extends StatelessWidget {
           builder: (context, box) => Stack(
             children: [
               Positioned.fill(
-                child: CustomPaint(painter: GalaxyLinesPainter()),
+                child: CustomPaint(
+                  painter: GalaxyScenePainter(
+                    animation: PulsarMotion.of(context),
+                  ),
+                ),
               ),
               ..._nodes(context, box.biggest),
             ],
@@ -378,20 +460,22 @@ class GalaxyScreen extends StatelessWidget {
 
   List<Widget> _nodes(BuildContext context, Size size) {
     const alignments = [
-      Alignment(-.64, -.78),
-      Alignment(.62, -.82),
-      Alignment(-.78, -.18),
-      Alignment(.69, -.12),
-      Alignment(-.55, .49),
-      Alignment(.61, .45),
+      Alignment(-.58, -.78),
+      Alignment(.54, -.73),
+      Alignment(-.52, -.28),
+      Alignment(.50, -.17),
+      Alignment(-.48, .32),
+      Alignment(.52, .38),
       Alignment(0, .72),
     ];
-    const sizes = [116.0, 94.0, 102.0, 124.0, 98.0, 88.0, 92.0];
+    const sizes = [138.0, 124.0, 126.0, 148.0, 134.0, 120.0, 130.0];
+    final todayIndex = DateTime.now().weekday - 1;
     return controller.plan.asMap().entries.map((entry) {
       final index = entry.key;
       final day = entry.value;
       final alignment = alignments[index];
-      final orbSize = sizes[index];
+      final isToday = index == todayIndex;
+      final orbSize = sizes[index] + (isToday ? 10 : 0);
       final left = (alignment.x + 1) / 2 * size.width - orbSize / 2;
       final top = (alignment.y + 1) / 2 * size.height - orbSize / 2;
       return Positioned(
@@ -411,9 +495,10 @@ class GalaxyScreen extends StatelessWidget {
                 value: (controller.progress(day) * 100).round(),
                 total: 100,
                 complete: controller.progress(day) >= 1,
+                hero: isToday,
               ),
               Text(
-                day.day,
+                isToday ? '${day.day} · 今天' : day.day,
                 style: const TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
@@ -450,52 +535,6 @@ class GalaxyScreen extends StatelessWidget {
     );
     HapticFeedback.mediumImpact();
   }
-}
-
-class GalaxyLinesPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final pathPaint = Paint()
-      ..color = const Color(0x18163D70)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = .65;
-    final path = Path()
-      ..moveTo(size.width * .18, size.height * .12)
-      ..cubicTo(
-        size.width * .55,
-        size.height * .03,
-        size.width * .8,
-        size.height * .12,
-        size.width * .82,
-        size.height * .28,
-      )
-      ..cubicTo(
-        size.width * .84,
-        size.height * .47,
-        size.width * .34,
-        size.height * .42,
-        size.width * .18,
-        size.height * .62,
-      )
-      ..cubicTo(
-        size.width * .04,
-        size.height * .81,
-        size.width * .61,
-        size.height * .71,
-        size.width * .5,
-        size.height * .94,
-      );
-    canvas.drawPath(path, pathPaint);
-    final star = Paint()..color = const Color(0x6676B8FF);
-    for (var index = 0; index < 24; index++) {
-      final x = (index * 83 % 101) / 100 * size.width;
-      final y = (index * 47 % 97) / 100 * size.height;
-      canvas.drawCircle(Offset(x, y), index % 5 == 0 ? 1.1 : .5, star);
-    }
-  }
-
-  @override
-  bool shouldRepaint(GalaxyLinesPainter oldDelegate) => false;
 }
 
 class DayGalaxyScreen extends StatefulWidget {
@@ -658,7 +697,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
     }
     final next = current + 1;
     armed[index] = false;
-    await widget.controller.setCount(widget.day, index, next);
+    await widget.controller.setCount(widget.day, index, next, recordSet: true);
     if (next >= exercise.sets) {
       HapticFeedback.heavyImpact();
     } else {
@@ -726,69 +765,127 @@ class RecordsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sets = controller.completed.values.fold<int>(
-      0,
-      (total, day) => total + day.values.fold<int>(0, (a, b) => a + b),
-    );
-    final days = controller.plan
-        .where((day) => !day.rest && controller.progress(day) >= 1)
-        .length;
-    final trainingDays = controller.plan.where((day) => !day.rest).length;
+    final summaries = controller.trainingSummaries;
     return Column(
       children: [
         const PulsarHeader(title: '训练记录'),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 28, 20, 30),
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 34),
             children: [
+              _RecordHero(controller: controller),
+              const SizedBox(height: 14),
               Row(
                 children: [
-                  _Metric(value: '$sets', label: '完成组数'),
-                  const SizedBox(width: 12),
-                  _Metric(value: '$days', label: '完成训练日'),
-                  const SizedBox(width: 12),
-                  _Metric(value: '$trainingDays', label: '计划训练日'),
+                  _Metric(value: '${controller.events.length}', label: '累计组数'),
+                  const SizedBox(width: 9),
+                  _Metric(value: '${controller.activeDays}', label: '活跃天数'),
+                  const SizedBox(width: 9),
+                  _Metric(value: '${controller.currentStreak}', label: '连续天数'),
                 ],
               ),
-              const SizedBox(height: 34),
-              Wrap(
-                alignment: WrapAlignment.spaceAround,
-                runSpacing: 24,
-                children: controller.plan
-                    .map(
-                      (day) => SizedBox(
-                        width: 82,
-                        child: Column(
-                          children: [
-                            LiquidOrb(
-                              size: 72,
-                              palette: PulsarPalette.values[day.palette],
-                              value: (controller.progress(day) * 100).round(),
-                              total: 100,
-                              complete: controller.progress(day) >= 1,
-                              showValue: false,
-                              animate: false,
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              day.day,
-                              style: const TextStyle(
-                                fontSize: 9,
-                                color: Color(0xFF8B98B0),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
+              const SizedBox(height: 16),
+              _EnergyTrend(controller: controller),
+              const SizedBox(height: 14),
+              _HeatField(controller: controller),
+              const SizedBox(height: 24),
+              const Text(
+                '最近训练',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
               ),
+              const SizedBox(height: 10),
+              if (summaries.isEmpty)
+                const _EmptyHistory()
+              else
+                ...summaries
+                    .take(12)
+                    .map(
+                      (summary) => _HistoryCard(
+                        summary: summary,
+                        palette: _paletteFor(controller, summary.dayKey),
+                      ),
+                    ),
             ],
           ),
         ),
       ],
     );
   }
+
+  static PulsarPalette _paletteFor(PulsarController controller, String dayKey) {
+    final index = controller.plan.indexWhere((day) => day.keyName == dayKey);
+    return PulsarPalette.values[index < 0 ? 0 : controller.plan[index].palette];
+  }
+}
+
+class _RecordHero extends StatelessWidget {
+  const _RecordHero({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 142,
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(26),
+      border: Border.all(color: const Color(0x294A749C)),
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xD9172943), Color(0xD20B1124)],
+      ),
+    ),
+    child: Stack(
+      children: [
+        Positioned(
+          right: -4,
+          top: 2,
+          child: LiquidOrb(
+            size: 138,
+            palette: PulsarPalette.values[0],
+            value: controller.events.length % 100,
+            total: 100,
+            showValue: false,
+          ),
+        ),
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 19, 145, 17),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ENERGY ARCHIVE',
+                  style: TextStyle(
+                    fontSize: 8,
+                    letterSpacing: 1.6,
+                    color: Color(0xFF78CFE4),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${controller.events.length}',
+                  style: const TextStyle(
+                    fontSize: 34,
+                    height: 1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Text(
+                  '每一次点击，都留下能量轨迹',
+                  maxLines: 2,
+                  style: TextStyle(fontSize: 9, color: Color(0xFF8C9AB0)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Metric extends StatelessWidget {
@@ -800,7 +897,7 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
     child: Container(
-      height: 86,
+      height: 76,
       decoration: BoxDecoration(
         border: Border.all(color: const Color(0x202C3B5E)),
         borderRadius: BorderRadius.circular(20),
@@ -811,7 +908,7 @@ class _Metric extends StatelessWidget {
         children: [
           Text(
             value,
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
           ),
           Text(
             label,
@@ -819,6 +916,281 @@ class _Metric extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _EnergyTrend extends StatelessWidget {
+  const _EnergyTrend({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final days = List.generate(
+      7,
+      (index) => DateTime(
+        today.year,
+        today.month,
+        today.day,
+      ).subtract(Duration(days: 6 - index)),
+    );
+    final values = days.map(controller.setsOnDate).toList();
+    final maxValue = values.fold<int>(
+      1,
+      (max, value) => value > max ? value : max,
+    );
+    const week = ['一', '二', '三', '四', '五', '六', '日'];
+    return Container(
+      height: 164,
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 12),
+      decoration: BoxDecoration(
+        color: const Color(0x99101828),
+        borderRadius: BorderRadius.circular(23),
+        border: Border.all(color: const Color(0x202F4664)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Text(
+                '近 7 天能量',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+              ),
+              Spacer(),
+              Text(
+                '完成组数',
+                style: TextStyle(fontSize: 8, color: Color(0xFF74849D)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: List.generate(7, (index) {
+                final value = values[index];
+                final height = 9 + 65 * value / maxValue;
+                return Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        '$value',
+                        style: const TextStyle(
+                          fontSize: 7,
+                          color: Color(0xFF8CA1BD),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 420),
+                        width: 17,
+                        height: height,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(9),
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: value == 0
+                                ? const [Color(0x182E4260), Color(0x222E4260)]
+                                : const [Color(0xFF335EC3), Color(0xFF6FE5EB)],
+                          ),
+                          boxShadow: value == 0
+                              ? null
+                              : const [
+                                  BoxShadow(
+                                    color: Color(0x443DCBEB),
+                                    blurRadius: 10,
+                                  ),
+                                ],
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        week[days[index].weekday - 1],
+                        style: const TextStyle(
+                          fontSize: 8,
+                          color: Color(0xFF7C8BA4),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeatField extends StatelessWidget {
+  const _HeatField({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final days = List.generate(
+      28,
+      (index) => DateTime(
+        today.year,
+        today.month,
+        today.day,
+      ).subtract(Duration(days: 27 - index)),
+    );
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0x8A101727),
+        borderRadius: BorderRadius.circular(23),
+        border: Border.all(color: const Color(0x202F4664)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '28 天活跃场',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 13),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 14,
+              mainAxisSpacing: 7,
+              crossAxisSpacing: 7,
+            ),
+            itemCount: days.length,
+            itemBuilder: (context, index) {
+              final value = controller.setsOnDate(days[index]);
+              final strength = (value / 8).clamp(0.0, 1.0);
+              return DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: value == 0
+                      ? const Color(0x182E405B)
+                      : Color.lerp(
+                          const Color(0xFF294A87),
+                          const Color(0xFF79E5E6),
+                          strength,
+                        ),
+                  boxShadow: value == 0
+                      ? null
+                      : [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF5BC9E0,
+                            ).withValues(alpha: .12 + strength * .22),
+                            blurRadius: 7,
+                          ),
+                        ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryCard extends StatelessWidget {
+  const _HistoryCard({required this.summary, required this.palette});
+
+  final DailyTrainingSummary summary;
+  final PulsarPalette palette;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 9),
+    padding: const EdgeInsets.fromLTRB(8, 8, 15, 8),
+    decoration: BoxDecoration(
+      color: const Color(0x92101827),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: palette.edge.withValues(alpha: .13)),
+    ),
+    child: Row(
+      children: [
+        LiquidOrb(
+          size: 66,
+          palette: palette,
+          value: summary.sets,
+          total: summary.sets,
+          complete: true,
+          showValue: false,
+          animate: false,
+        ),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${summary.dayLabel} · ${summary.workoutTitle}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个动作',
+                style: const TextStyle(fontSize: 8, color: Color(0xFF7E8BA1)),
+              ),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${summary.sets}',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                color: palette.core,
+              ),
+            ),
+            const Text(
+              '组',
+              style: TextStyle(fontSize: 8, color: Color(0xFF7A879C)),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _EmptyHistory extends StatelessWidget {
+  const _EmptyHistory();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 112,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: const Color(0x66101827),
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: const Color(0x182F4664)),
+    ),
+    child: const Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.auto_awesome_rounded, size: 20, color: Color(0xFF657892)),
+        SizedBox(height: 8),
+        Text(
+          '完成第一组后，能量轨迹会出现在这里',
+          style: TextStyle(fontSize: 9, color: Color(0xFF748198)),
+        ),
+      ],
     ),
   );
 }
