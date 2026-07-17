@@ -8,6 +8,6 @@ void main() {
     await tester.pumpWidget(const PulsarApp());
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('PULSAR'), findsOneWidget);
-    expect(find.text('MON'), findsOneWidget);
+    expect(find.text('周一'), findsOneWidget);
   });
 }
