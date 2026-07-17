@@ -34,25 +34,25 @@ class _PulsarAppState extends State<PulsarApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'Pulsar',
-    theme: ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: Colors.transparent,
-      fontFamily: 'sans-serif',
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF00D9FF),
+  Widget build(BuildContext context) => PulsarMotion(
+    child: MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Pulsar',
+      theme: ThemeData(
+        useMaterial3: true,
         brightness: Brightness.dark,
+        scaffoldBackgroundColor: Colors.transparent,
+        fontFamily: 'sans-serif',
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF00D9FF),
+          brightness: Brightness.dark,
+        ),
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: Color(0xFFD5DDF0)),
+          bodySmall: TextStyle(color: Color(0xFF8290AA)),
+        ),
       ),
-      textTheme: const TextTheme(
-        bodyMedium: TextStyle(color: Color(0xFFD5DDF0)),
-        bodySmall: TextStyle(color: Color(0xFF8290AA)),
-      ),
-    ),
-    home: PulsarMotion(
-      child: AnimatedBuilder(
+      home: AnimatedBuilder(
         animation: controller,
         builder: (context, child) => controller.ready
             ? PulsarShell(controller: controller)
@@ -397,38 +397,42 @@ class GalaxyScreen extends StatelessWidget {
       return Positioned(
         left: left,
         top: top,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            LiquidOrb(
-              size: orbSize,
-              palette: PulsarPalette.values[day.palette],
-              value: (controller.progress(day) * 100).round(),
-              total: 100,
-              complete: controller.progress(day) >= 1,
-              onTap: () => _openDay(context, day),
-            ),
-            Text(
-              day.day,
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                letterSpacing: .8,
+        child: GestureDetector(
+          key: ValueKey('day-hit-${day.keyName}'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _openDay(context, day),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LiquidOrb(
+                key: ValueKey('day-${day.keyName}'),
+                size: orbSize,
+                palette: PulsarPalette.values[day.palette],
+                value: (controller.progress(day) * 100).round(),
+                total: 100,
+                complete: controller.progress(day) >= 1,
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              day.title,
-              style: const TextStyle(fontSize: 8, color: Color(0xFF8290AA)),
-            ),
-          ],
+              Text(
+                day.day,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .8,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                day.title,
+                style: const TextStyle(fontSize: 8, color: Color(0xFF8290AA)),
+              ),
+            ],
+          ),
         ),
       );
     }).toList();
   }
 
   void _openDay(BuildContext context, WorkoutDay day) {
-    HapticFeedback.mediumImpact();
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 480),
@@ -444,6 +448,7 @@ class GalaxyScreen extends StatelessWidget {
         ),
       ),
     );
+    HapticFeedback.mediumImpact();
   }
 }
 
@@ -595,38 +600,43 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
       return Positioned(
         left: left,
         top: top,
-        child: SizedBox(
-          width: 132,
-          child: Column(
-            children: [
-              LiquidOrb(
-                size: orbSize,
-                palette:
-                    PulsarPalette.values[(day.palette + index) %
-                        PulsarPalette.values.length],
-                value: count.clamp(0, exercise.sets),
-                total: exercise.sets,
-                complete: done,
-                armed: armed[index] ?? false,
-                entryDelay: Duration(milliseconds: index * 70),
-                onTap: () => _tapExercise(index, exercise),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                exercise.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
+        child: GestureDetector(
+          key: ValueKey('exercise-hit-${day.keyName}-$index'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _tapExercise(index, exercise),
+          child: SizedBox(
+            width: 132,
+            child: Column(
+              children: [
+                LiquidOrb(
+                  key: ValueKey('exercise-${day.keyName}-$index'),
+                  size: orbSize,
+                  palette:
+                      PulsarPalette.values[(day.palette + index) %
+                          PulsarPalette.values.length],
+                  value: count.clamp(0, exercise.sets),
+                  total: exercise.sets,
+                  complete: done,
+                  armed: armed[index] ?? false,
+                  entryDelay: Duration(milliseconds: index * 70),
                 ),
-              ),
-              Text(
-                exercise.reps,
-                style: const TextStyle(fontSize: 8, color: Color(0xFF7D8BA3)),
-              ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  exercise.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  exercise.reps,
+                  style: const TextStyle(fontSize: 8, color: Color(0xFF7D8BA3)),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -637,23 +647,23 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
     final current = widget.controller.count(widget.day, index);
     if (current >= exercise.sets) {
       if (armed[index] ?? false) {
-        await HapticFeedback.mediumImpact();
         armed[index] = false;
         await widget.controller.setCount(widget.day, index, 0);
+        HapticFeedback.mediumImpact();
       } else {
-        await HapticFeedback.selectionClick();
         setState(() => armed[index] = true);
+        HapticFeedback.selectionClick();
       }
       return;
     }
     final next = current + 1;
-    if (next >= exercise.sets) {
-      await HapticFeedback.heavyImpact();
-    } else {
-      await HapticFeedback.lightImpact();
-    }
     armed[index] = false;
     await widget.controller.setCount(widget.day, index, next);
+    if (next >= exercise.sets) {
+      HapticFeedback.heavyImpact();
+    } else {
+      HapticFeedback.lightImpact();
+    }
     if (mounted) setState(() {});
   }
 }
@@ -886,8 +896,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           (entry) => _exerciseEditor(day, entry.key, entry.value),
         ),
         if (!day.rest)
-          TextButton.icon(
-            onPressed: () {
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 22),
+            onTap: () {
               setState(
                 () => day.exercises.add(
                   ExercisePlan(
@@ -900,8 +912,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               );
               widget.controller.updatePlan();
             },
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text('添加训练动作', style: TextStyle(fontSize: 10)),
+            leading: const Icon(Icons.add_circle_outline_rounded, size: 17),
+            title: const Text('添加训练动作', style: TextStyle(fontSize: 10)),
           ),
         const SizedBox(height: 8),
       ],

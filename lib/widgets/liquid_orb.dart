@@ -11,30 +11,28 @@ class PulsarPalette {
   final Color accent;
 
   static const values = [
-    PulsarPalette(Color(0xFF00E7FF), Color(0xFF176BFF), Color(0xFF794CFF)),
-    PulsarPalette(Color(0xFF68A8FF), Color(0xFF3155FF), Color(0xFFB337FF)),
-    PulsarPalette(Color(0xFF5CF4D5), Color(0xFF008BEA), Color(0xFF715CFF)),
-    PulsarPalette(Color(0xFFFF6FCA), Color(0xFF7B3CFF), Color(0xFF26C7FF)),
-    PulsarPalette(Color(0xFFFFC46B), Color(0xFFFF5F8F), Color(0xFF8A4DFF)),
-    PulsarPalette(Color(0xFFB5C9FF), Color(0xFF596BFF), Color(0xFF8E58FF)),
-    PulsarPalette(Color(0xFF53F2B8), Color(0xFF00A6C8), Color(0xFF426CFF)),
+    PulsarPalette(Color(0xFFB8F8FF), Color(0xFF49BCEB), Color(0xFF7776E8)),
+    PulsarPalette(Color(0xFFC7D4FF), Color(0xFF6A8DE8), Color(0xFFA578E5)),
+    PulsarPalette(Color(0xFFB4F5E2), Color(0xFF52BEAE), Color(0xFF6A83DE)),
+    PulsarPalette(Color(0xFFF3C7E8), Color(0xFFC178B2), Color(0xFF7779DF)),
+    PulsarPalette(Color(0xFFFFE1B7), Color(0xFFD7A165), Color(0xFFB178C9)),
+    PulsarPalette(Color(0xFFD8E1F6), Color(0xFF8595BB), Color(0xFF8C79C9)),
+    PulsarPalette(Color(0xFFB7F2D5), Color(0xFF55B89A), Color(0xFF608AD7)),
   ];
 }
 
-/// Provides one slow animation clock for every visible energy orb.
-/// The old implementation created a controller and rebuilt a widget tree for
-/// every orb on every frame. This scope keeps motion synchronized and confines
-/// frame work to CustomPainter only.
+/// A single slow clock shared by every orb. Only CustomPainter repaints while
+/// the widget tree stays still.
 class PulsarMotion extends StatefulWidget {
   const PulsarMotion({required this.child, super.key});
 
   final Widget child;
 
-  static Animation<double> of(BuildContext context) {
-    return context
-        .dependOnInheritedWidgetOfExactType<_PulsarMotionInherited>()!
-        .animation;
-  }
+  static Animation<double> of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_PulsarMotionInherited>()
+          ?.animation ??
+      const AlwaysStoppedAnimation<double>(0.16);
 
   @override
   State<PulsarMotion> createState() => _PulsarMotionState();
@@ -49,7 +47,7 @@ class _PulsarMotionState extends State<PulsarMotion>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 14),
+      duration: const Duration(seconds: 16),
     )..repeat();
   }
 
@@ -116,7 +114,7 @@ class _LiquidOrbState extends State<LiquidOrb>
     super.initState();
     _entryController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
+      duration: const Duration(milliseconds: 460),
     );
     _entry = CurvedAnimation(
       parent: _entryController,
@@ -143,96 +141,102 @@ class _LiquidOrbState extends State<LiquidOrb>
     final progress = widget.total <= 0
         ? 0.0
         : (widget.value / widget.total).clamp(0.0, 1.0);
-    final sharedMotion = PulsarMotion.of(context);
     final motion = widget.animate
-        ? sharedMotion
-        : const AlwaysStoppedAnimation<double>(0.18);
+        ? PulsarMotion.of(context)
+        : const AlwaysStoppedAnimation<double>(0.16);
+
+    final visual = ScaleTransition(
+      scale: _entry,
+      child: SizedBox.square(
+        dimension: widget.size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            RepaintBoundary(
+              child: CustomPaint(
+                size: Size.square(widget.size),
+                painter: LightClusterPainter(
+                  animation: motion,
+                  palette: widget.palette,
+                  progress: progress,
+                  complete: widget.complete,
+                  hero: widget.hero,
+                ),
+              ),
+            ),
+            if (widget.showValue) _reading(),
+          ],
+        ),
+      ),
+    );
 
     return Semantics(
       button: widget.onTap != null,
       label: '已完成 ${widget.value} 组，共 ${widget.total} 组',
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: ScaleTransition(
-          scale: _entry,
-          child: SizedBox.square(
-            dimension: widget.size,
-            child: Stack(
-              alignment: Alignment.center,
+      child: widget.onTap == null
+          ? visual
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onTap,
+              child: visual,
+            ),
+    );
+  }
+
+  Widget _reading() => AnimatedSwitcher(
+    duration: const Duration(milliseconds: 160),
+    child: widget.armed
+        ? Text(
+            '再点一次',
+            key: const ValueKey('armed'),
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              color: widget.palette.core,
+            ),
+          )
+        : widget.complete
+        ? Icon(
+            Icons.check_rounded,
+            key: const ValueKey('done'),
+            size: widget.size * .16,
+            color: Colors.white.withValues(alpha: .94),
+          )
+        : RichText(
+            key: ValueKey(widget.value),
+            text: TextSpan(
               children: [
-                RepaintBoundary(
-                  child: CustomPaint(
-                    size: Size.square(widget.size),
-                    painter: EnergyOrbPainter(
-                      animation: motion,
-                      palette: widget.palette,
-                      progress: progress,
-                      complete: widget.complete,
-                      hero: widget.hero,
-                    ),
+                TextSpan(
+                  text: '${widget.value}',
+                  style: TextStyle(
+                    fontSize: widget.size * .15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white.withValues(alpha: .95),
+                    shadows: [
+                      Shadow(
+                        color: widget.palette.edge.withValues(alpha: .7),
+                        blurRadius: 9,
+                      ),
+                    ],
                   ),
                 ),
-                if (widget.showValue)
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child: widget.armed
-                        ? const Text(
-                            '再点一次',
-                            key: ValueKey('armed'),
-                            style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFFFFD5EC),
-                            ),
-                          )
-                        : widget.complete
-                        ? Icon(
-                            Icons.check_rounded,
-                            key: const ValueKey('done'),
-                            size: widget.size * .17,
-                            color: Colors.white,
-                          )
-                        : RichText(
-                            key: ValueKey(widget.value),
-                            text: TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: '${widget.value}',
-                                  style: TextStyle(
-                                    fontSize: widget.size * .16,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                    shadows: [
-                                      Shadow(
-                                        color: widget.palette.core,
-                                        blurRadius: 12,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: '/${widget.total}',
-                                  style: TextStyle(
-                                    fontSize: widget.size * .062,
-                                    color: const Color(0xFF9AA9C2),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                TextSpan(
+                  text: '/${widget.total}',
+                  style: TextStyle(
+                    fontSize: widget.size * .06,
+                    color: const Color(0xFF9AA7BC),
                   ),
+                ),
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
+  );
 }
 
-class EnergyOrbPainter extends CustomPainter {
-  EnergyOrbPainter({
+/// A soft light mass, not a glass sphere. The cluster is built from radial
+/// falloffs with no hard boundary, while two fine rings orbit independently.
+class LightClusterPainter extends CustomPainter {
+  LightClusterPainter({
     required this.animation,
     required this.palette,
     required this.progress,
@@ -249,192 +253,141 @@ class EnergyOrbPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final phase = animation.value;
-    final angle = phase * math.pi * 2;
-    final pulse = (math.sin(angle) + 1) * .5;
+    final theta = phase * math.pi * 2;
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width * (hero ? .315 : .29) + pulse * .8;
+    final base = size.width * (hero ? .24 : .22);
+    final breath = 1 + math.sin(theta) * .025;
+    final clusterRadius = base * breath;
 
-    // Soft aura: gradients are substantially cheaper than per-frame blur layers.
-    canvas.drawCircle(
+    _drawSoftCircle(
+      canvas,
       center,
-      radius * 1.62,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            palette.core.withValues(alpha: complete ? .27 : .19),
-            palette.edge.withValues(alpha: .09),
-            Colors.transparent,
-          ],
-          stops: const [0, .48, 1],
-        ).createShader(Rect.fromCircle(center: center, radius: radius * 1.62)),
+      clusterRadius * 1.72,
+      [
+        palette.edge.withValues(alpha: complete ? .19 : .12),
+        palette.accent.withValues(alpha: .055),
+        Colors.transparent,
+      ],
+      const [.0, .46, 1],
     );
 
     _drawOrbit(
       canvas,
       center,
-      radius,
-      angle * .42,
-      width: radius * 3.15,
-      height: radius * 1.28,
+      theta * .34,
+      width: clusterRadius * 3.35,
+      height: clusterRadius * 1.42,
       tilt: -.22,
-      alpha: .42,
+      alpha: .34,
+      nodeRadius: 1.8,
     );
     _drawOrbit(
       canvas,
       center,
-      radius,
-      -angle * .28 + 1.8,
-      width: radius * 2.35,
-      height: radius * 2.02,
-      tilt: .72,
+      -theta * .24 + 1.9,
+      width: clusterRadius * 2.48,
+      height: clusterRadius * 2.12,
+      tilt: .68,
       alpha: .18,
-      small: true,
+      nodeRadius: 1.15,
     );
 
-    final sphere = Rect.fromCircle(center: center, radius: radius);
-    canvas.save();
-    canvas.clipPath(Path()..addOval(sphere));
-
-    canvas.drawCircle(
+    // The main light mass has a diffuse boundary and a warm-white center.
+    _drawSoftCircle(
+      canvas,
       center,
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-.35, -.42),
-          radius: 1.08,
-          colors: [
-            Colors.white.withValues(alpha: .96),
-            palette.core.withValues(alpha: .95),
-            palette.edge.withValues(alpha: .92),
-            const Color(0xFF080A24),
-          ],
-          stops: const [0, .12, .55, 1],
-        ).createShader(sphere),
+      clusterRadius * 1.12,
+      [
+        Colors.white.withValues(alpha: .9),
+        palette.core.withValues(alpha: .72),
+        palette.edge.withValues(alpha: .38),
+        palette.accent.withValues(alpha: .11),
+        Colors.transparent,
+      ],
+      const [0, .16, .48, .76, 1],
     );
 
-    // Two moving translucent bodies create a restrained liquid-light effect.
-    final bodyA =
+    final mistA =
         center +
         Offset(
-          math.cos(angle * .63) * radius * .28,
-          math.sin(angle * .47) * radius * .22,
+          math.cos(theta * .53) * clusterRadius * .31,
+          math.sin(theta * .41) * clusterRadius * .22,
         );
-    canvas.drawCircle(
-      bodyA,
-      radius * .72,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            palette.accent.withValues(alpha: .52),
-            palette.accent.withValues(alpha: .12),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: bodyA, radius: radius * .72)),
+    _drawSoftCircle(
+      canvas,
+      mistA,
+      clusterRadius * .76,
+      [
+        palette.core.withValues(alpha: .24),
+        palette.edge.withValues(alpha: .10),
+        Colors.transparent,
+      ],
+      const [0, .48, 1],
     );
-    final bodyB =
+
+    final mistB =
         center +
         Offset(
-          math.sin(angle * .39 + 2) * radius * .34,
-          math.cos(angle * .52 + 1) * radius * .26,
+          math.sin(theta * .37 + 1.2) * clusterRadius * .28,
+          math.cos(theta * .49 + .8) * clusterRadius * .24,
         );
-    canvas.drawCircle(
-      bodyB,
-      radius * .62,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            Colors.white.withValues(alpha: .23),
-            palette.core.withValues(alpha: .08),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: bodyB, radius: radius * .62)),
+    _drawSoftCircle(
+      canvas,
+      mistB,
+      clusterRadius * .66,
+      [
+        palette.accent.withValues(alpha: .20),
+        palette.accent.withValues(alpha: .06),
+        Colors.transparent,
+      ],
+      const [0, .5, 1],
     );
 
-    final streamY = center.dy + math.sin(angle * .55) * radius * .13;
-    final stream = Path()
-      ..moveTo(center.dx - radius * 1.2, streamY)
-      ..cubicTo(
-        center.dx - radius * .42,
-        streamY - radius * .34,
-        center.dx + radius * .3,
-        streamY + radius * .31,
-        center.dx + radius * 1.2,
-        streamY - radius * .08,
-      );
-    canvas.drawPath(
-      stream,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = radius * .11
-        ..strokeCap = StrokeCap.round
-        ..shader = LinearGradient(
-          colors: [
-            Colors.transparent,
-            Colors.white.withValues(alpha: .08),
-            palette.core.withValues(alpha: .32),
-            Colors.transparent,
-          ],
-        ).createShader(sphere),
+    // A fine broken ring doubles as progress without enclosing a hard sphere.
+    final progressRect = Rect.fromCircle(
+      center: center,
+      radius: clusterRadius * 1.34,
     );
-
-    // Glass falloff restores a crisp edge and avoids the muddy appearance.
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-.42, -.5),
-          radius: 1.15,
-          colors: [
-            Colors.white.withValues(alpha: .28),
-            Colors.transparent,
-            Colors.black.withValues(alpha: .52),
-          ],
-          stops: const [0, .4, 1],
-        ).createShader(sphere),
-    );
-    canvas.restore();
-
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..shader = SweepGradient(
-          transform: GradientRotation(angle * .12),
-          colors: [
-            palette.core.withValues(alpha: .9),
-            Colors.white.withValues(alpha: .18),
-            palette.accent.withValues(alpha: .58),
-            palette.core.withValues(alpha: .9),
-          ],
-        ).createShader(sphere),
-    );
-
     canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius * 1.19),
+      progressRect,
       -math.pi / 2,
       math.pi * 2 * progress,
       false,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = complete ? 2.2 : 1.35
+        ..strokeWidth = complete ? 1.8 : 1.05
         ..strokeCap = StrokeCap.round
-        ..color = palette.core.withValues(alpha: complete ? .95 : .68),
+        ..color = palette.core.withValues(alpha: complete ? .82 : .48),
+    );
+  }
+
+  void _drawSoftCircle(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    List<Color> colors,
+    List<double> stops,
+  ) {
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: colors,
+          stops: stops,
+        ).createShader(Rect.fromCircle(center: center, radius: radius)),
     );
   }
 
   void _drawOrbit(
     Canvas canvas,
     Offset center,
-    double radius,
     double motion, {
     required double width,
     required double height,
     required double tilt,
     required double alpha,
-    bool small = false,
+    required double nodeRadius,
   }) {
     canvas.save();
     canvas.translate(center.dx, center.dy);
@@ -448,15 +401,16 @@ class EnergyOrbPainter extends CustomPainter {
       bounds,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = small ? .55 : .9
+        ..strokeWidth = .7
         ..shader = SweepGradient(
-          transform: GradientRotation(motion * .18),
+          transform: GradientRotation(motion * .12),
           colors: [
             Colors.transparent,
-            palette.core.withValues(alpha: alpha),
-            palette.accent.withValues(alpha: alpha * .8),
+            palette.edge.withValues(alpha: alpha),
+            palette.accent.withValues(alpha: alpha * .7),
             Colors.transparent,
           ],
+          stops: const [0, .26, .68, 1],
         ).createShader(bounds),
     );
     final node = Offset(
@@ -465,17 +419,16 @@ class EnergyOrbPainter extends CustomPainter {
     );
     canvas.drawCircle(
       node,
-      small ? 1.2 : 2.1,
-      Paint()..color = small ? palette.accent : palette.core,
+      nodeRadius,
+      Paint()..color = palette.core.withValues(alpha: .86),
     );
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(EnergyOrbPainter oldDelegate) {
-    return palette != oldDelegate.palette ||
-        progress != oldDelegate.progress ||
-        complete != oldDelegate.complete ||
-        hero != oldDelegate.hero;
-  }
+  bool shouldRepaint(LightClusterPainter oldDelegate) =>
+      palette != oldDelegate.palette ||
+      progress != oldDelegate.progress ||
+      complete != oldDelegate.complete ||
+      hero != oldDelegate.hero;
 }

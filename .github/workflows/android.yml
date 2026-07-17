@@ -31,8 +31,16 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Restore release signing key
+        run: echo "${{ secrets.PULSAR_KEYSTORE_BASE64 }}" | base64 --decode > android/app/pulsar-release.jks
+
       - name: Build installable APK
         run: flutter build apk --release
+        env:
+          PULSAR_STORE_FILE: pulsar-release.jks
+          PULSAR_STORE_PASSWORD: ${{ secrets.PULSAR_STORE_PASSWORD }}
+          PULSAR_KEY_ALIAS: ${{ secrets.PULSAR_KEY_ALIAS }}
+          PULSAR_KEY_PASSWORD: ${{ secrets.PULSAR_KEY_PASSWORD }}
 
       - name: Rename APK
         run: cp build/app/outputs/flutter-apk/app-release.apk Pulsar-${{ github.ref_name }}.apk
