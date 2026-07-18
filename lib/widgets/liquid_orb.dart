@@ -255,20 +255,20 @@ class LightClusterPainter extends CustomPainter {
     final phase = animation.value;
     final theta = phase * math.pi * 2;
     final center = Offset(size.width / 2, size.height / 2);
-    final base = size.width * (hero ? .27 : .25);
-    final breath = 1 + math.sin(theta) * .025;
+    final base = size.width * (hero ? .30 : .28);
+    final breath = 1 + math.sin(theta) * .045;
     final clusterRadius = base * breath;
 
     _drawSoftCircle(
       canvas,
       center,
-      clusterRadius * 1.72,
+      clusterRadius * 1.86,
       [
-        palette.edge.withValues(alpha: complete ? .19 : .12),
-        palette.accent.withValues(alpha: .055),
+        palette.core.withValues(alpha: complete ? .31 : .23),
+        palette.edge.withValues(alpha: .13),
         Colors.transparent,
       ],
-      const [.0, .46, 1],
+      const [.0, .42, 1],
     );
 
     _drawOrbit(
@@ -278,8 +278,8 @@ class LightClusterPainter extends CustomPainter {
       width: clusterRadius * 3.35,
       height: clusterRadius * 1.42,
       tilt: -.22,
-      alpha: .34,
-      nodeRadius: 1.8,
+      alpha: .58,
+      nodeRadius: 2.15,
     );
     _drawOrbit(
       canvas,
@@ -288,8 +288,8 @@ class LightClusterPainter extends CustomPainter {
       width: clusterRadius * 2.48,
       height: clusterRadius * 2.12,
       tilt: .68,
-      alpha: .18,
-      nodeRadius: 1.15,
+      alpha: .34,
+      nodeRadius: 1.45,
     );
     _drawOrbit(
       canvas,
@@ -298,8 +298,8 @@ class LightClusterPainter extends CustomPainter {
       width: clusterRadius * 2.9,
       height: clusterRadius * .78,
       tilt: .24,
-      alpha: .13,
-      nodeRadius: .85,
+      alpha: .26,
+      nodeRadius: 1.05,
     );
 
     // The main light mass has a diffuse boundary and a warm-white center.
@@ -308,10 +308,10 @@ class LightClusterPainter extends CustomPainter {
       center,
       clusterRadius * 1.12,
       [
-        Colors.white.withValues(alpha: .9),
-        palette.core.withValues(alpha: .72),
-        palette.edge.withValues(alpha: .38),
-        palette.accent.withValues(alpha: .11),
+        Colors.white.withValues(alpha: .98),
+        palette.core.withValues(alpha: .88),
+        palette.edge.withValues(alpha: .55),
+        palette.accent.withValues(alpha: .18),
         Colors.transparent,
       ],
       const [0, .16, .48, .76, 1],
@@ -328,8 +328,8 @@ class LightClusterPainter extends CustomPainter {
       mistA,
       clusterRadius * .76,
       [
-        palette.core.withValues(alpha: .24),
-        palette.edge.withValues(alpha: .10),
+        palette.core.withValues(alpha: .36),
+        palette.edge.withValues(alpha: .16),
         Colors.transparent,
       ],
       const [0, .48, 1],
@@ -346,8 +346,8 @@ class LightClusterPainter extends CustomPainter {
       mistB,
       clusterRadius * .66,
       [
-        palette.accent.withValues(alpha: .20),
-        palette.accent.withValues(alpha: .06),
+        palette.accent.withValues(alpha: .30),
+        palette.accent.withValues(alpha: .10),
         Colors.transparent,
       ],
       const [0, .5, 1],
@@ -365,9 +365,9 @@ class LightClusterPainter extends CustomPainter {
       false,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = complete ? 1.8 : 1.05
+        ..strokeWidth = complete ? 2.2 : 1.35
         ..strokeCap = StrokeCap.round
-        ..color = palette.core.withValues(alpha: complete ? .82 : .48),
+        ..color = palette.core.withValues(alpha: complete ? .96 : .68),
     );
   }
 
@@ -411,7 +411,7 @@ class LightClusterPainter extends CustomPainter {
       bounds,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = .7
+        ..strokeWidth = .95
         ..shader = SweepGradient(
           transform: GradientRotation(motion * .12),
           colors: [
@@ -431,7 +431,7 @@ class LightClusterPainter extends CustomPainter {
         false,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = segment == 0 ? 1.05 : .55
+          ..strokeWidth = segment == 0 ? 1.35 : .72
           ..strokeCap = StrokeCap.round
           ..color = palette.core.withValues(alpha: alpha * (1 - segment * .2)),
       );
@@ -455,7 +455,7 @@ class LightClusterPainter extends CustomPainter {
     canvas.drawCircle(
       node,
       nodeRadius,
-      Paint()..color = palette.core.withValues(alpha: .86),
+      Paint()..color = palette.core.withValues(alpha: .98),
     );
     canvas.restore();
   }

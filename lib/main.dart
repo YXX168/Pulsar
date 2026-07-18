@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -13,7 +15,7 @@ void main() {
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: Color(0xFF050713),
+      systemNavigationBarColor: Color(0xFF081126),
     ),
   );
   runApp(const PulsarApp());
@@ -220,8 +222,8 @@ class _PulsarShellState extends State<PulsarShell> {
       ),
       bottomNavigationBar: NavigationBar(
         height: 68,
-        backgroundColor: const Color(0xF2050713),
-        indicatorColor: const Color(0x24396BFF),
+        backgroundColor: const Color(0xF2081126),
+        indicatorColor: const Color(0x384C78FF),
         selectedIndex: index,
         onDestinationSelected: (value) {
           HapticFeedback.selectionClick();
@@ -260,7 +262,7 @@ class PulsarBackdrop extends StatelessWidget {
       gradient: LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF030512), Color(0xFF070B1B), Color(0xFF090D20)],
+        colors: [Color(0xFF070B20), Color(0xFF0B1733), Color(0xFF102443)],
       ),
     ),
     child: Stack(
@@ -296,7 +298,7 @@ class _AmbientGlow extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: RadialGradient(
-          colors: [color.withValues(alpha: .13), Colors.transparent],
+          colors: [color.withValues(alpha: .22), Colors.transparent],
         ),
       ),
     ),
@@ -466,7 +468,7 @@ class GalaxyScreen extends StatelessWidget {
       Alignment(.50, -.17),
       Alignment(-.48, .32),
       Alignment(.52, .38),
-      Alignment(0, .72),
+      Alignment(0, .62),
     ];
     const sizes = [138.0, 124.0, 126.0, 148.0, 134.0, 120.0, 130.0];
     final todayIndex = DateTime.now().weekday - 1;
@@ -477,40 +479,46 @@ class GalaxyScreen extends StatelessWidget {
       final isToday = index == todayIndex;
       final orbSize = sizes[index] + (isToday ? 10 : 0);
       final left = (alignment.x + 1) / 2 * size.width - orbSize / 2;
-      final top = (alignment.y + 1) / 2 * size.height - orbSize / 2;
+      final rawTop = (alignment.y + 1) / 2 * size.height - orbSize / 2;
+      final top = rawTop.clamp(4.0, size.height - orbSize - 46.0);
       return Positioned(
         left: left,
         top: top,
-        child: GestureDetector(
-          key: ValueKey('day-hit-${day.keyName}'),
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _openDay(context, day),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LiquidOrb(
-                key: ValueKey('day-${day.keyName}'),
-                size: orbSize,
-                palette: PulsarPalette.values[day.palette],
-                value: (controller.progress(day) * 100).round(),
-                total: 100,
-                complete: controller.progress(day) >= 1,
-                hero: isToday,
-              ),
-              Text(
-                isToday ? '${day.day} · 今天' : day.day,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: .8,
+        child: _DriftingGalaxyNode(
+          animation: PulsarMotion.of(context),
+          phase: index * .91,
+          amplitude: isToday ? 9 : 6 + (index % 3) * 1.4,
+          child: GestureDetector(
+            key: ValueKey('day-hit-${day.keyName}'),
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openDay(context, day),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LiquidOrb(
+                  key: ValueKey('day-${day.keyName}'),
+                  size: orbSize,
+                  palette: PulsarPalette.values[day.palette],
+                  value: (controller.progress(day) * 100).round(),
+                  total: 100,
+                  complete: controller.progress(day) >= 1,
+                  hero: isToday,
                 ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                day.title,
-                style: const TextStyle(fontSize: 8, color: Color(0xFF8290AA)),
-              ),
-            ],
+                Text(
+                  isToday ? '${day.day} · 今天' : day.day,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .8,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  day.title,
+                  style: const TextStyle(fontSize: 8, color: Color(0xFFA6B9D7)),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -535,6 +543,36 @@ class GalaxyScreen extends StatelessWidget {
     );
     HapticFeedback.mediumImpact();
   }
+}
+
+class _DriftingGalaxyNode extends StatelessWidget {
+  const _DriftingGalaxyNode({
+    required this.animation,
+    required this.phase,
+    required this.amplitude,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final double phase;
+  final double amplitude;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: animation,
+    child: child,
+    builder: (context, child) {
+      final angle = animation.value * math.pi * 2 + phase;
+      final x = math.cos(angle * .72) * amplitude;
+      final y = math.sin(angle) * amplitude * .74;
+      final scale = 1 + math.sin(angle * .83) * .018;
+      return Transform.translate(
+        offset: Offset(x, y),
+        child: Transform.scale(scale: scale, child: child),
+      );
+    },
+  );
 }
 
 class DayGalaxyScreen extends StatefulWidget {

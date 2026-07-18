@@ -25,13 +25,13 @@ class GalaxyScenePainter extends CustomPainter {
       galaxyRect,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = .65
+        ..strokeWidth = .9
         ..shader = SweepGradient(
           transform: GradientRotation(theta * .08),
           colors: const [
             Colors.transparent,
-            Color(0x264C8BD7),
-            Color(0x1C8A63CF),
+            Color(0x4057B5FF),
+            Color(0x388E73F5),
             Colors.transparent,
           ],
         ).createShader(galaxyRect),
@@ -48,8 +48,8 @@ class GalaxyScenePainter extends CustomPainter {
       false,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = .45
-        ..color = const Color(0x1F4FB5D5),
+        ..strokeWidth = .7
+        ..color = const Color(0x3D57DDF4),
     );
     canvas.restore();
 
@@ -71,16 +71,29 @@ class GalaxyScenePainter extends CustomPainter {
             const Color(0xFF4F8FCA),
             const Color(0xFFC3E8FF),
             twinkle,
-          )!.withValues(alpha: .18 + twinkle * .38),
+          )!.withValues(alpha: .28 + twinkle * .48),
       );
     }
 
     final sweepX = (phase * 1.18 % 1) * size.width;
     canvas.drawCircle(
       Offset(sweepX, size.height * (.18 + math.sin(theta * .43) * .06)),
-      1.8,
-      Paint()..color = const Color(0xB47FE7FF),
+      2.2,
+      Paint()..color = const Color(0xE67FE7FF),
     );
+    for (var comet = 0; comet < 2; comet++) {
+      final progress = (phase * (.72 + comet * .13) + comet * .41) % 1;
+      final point = Offset(
+        size.width * (.08 + progress * .84),
+        size.height *
+            (.36 + comet * .31 + math.sin(theta * .55 + comet * 2.1) * .045),
+      );
+      canvas.drawCircle(
+        point,
+        1.25 + comet * .35,
+        Paint()..color = const Color(0xBDAEDFFF),
+      );
+    }
   }
 
   @override
