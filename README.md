@@ -1,5 +1,7 @@
 # PULSAR
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 一款纯 Flutter 打造的训练星系与健身记录应用。视觉灵感来自脉冲星、液态流光和轨道系统，但拥有独立的交互与视觉设计。
 
 ## 核心体验
