@@ -19,7 +19,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('weekly-core-hit')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 980));
-    expect(find.text('星环模式'), findsOneWidget);
+    expect(find.text('星环模式'), findsNothing);
+    expect(find.byKey(const ValueKey('header-energy-meter')), findsOneWidget);
     expect(find.byKey(const ValueKey('day-hit-mon')), findsOneWidget);
 
     final firstBack = tester.binding.handlePopRoute();

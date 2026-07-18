@@ -1214,7 +1214,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   Widget build(BuildContext context) => Column(
     children: [
       expanded
-          ? PulsarHeader(title: '星环模式', onBack: _collapseGalaxy)
+          ? PulsarHeader(progress: _weeklyProgress, onBack: _collapseGalaxy)
           : Stack(
               children: [
                 const PulsarHeader(),
@@ -1263,16 +1263,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   );
 
   Widget _weeklyCore(BuildContext context, Size size) {
-    final activeDays = widget.controller.plan.where((day) => !day.rest);
-    final total = activeDays.fold<int>(
-      0,
-      (sum, day) => sum + widget.controller.totalSets(day),
-    );
-    final done = activeDays.fold<int>(
-      0,
-      (sum, day) => sum + widget.controller.doneSets(day),
-    );
-    final progress = total == 0 ? 0.0 : done / total;
+    final progress = _weeklyProgress;
     final orbSize = math.min(size.width * .72, 278.0);
     return AnimatedBuilder(
       animation: _fissionController,
@@ -1295,20 +1286,25 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        LiquidOrb(
-                          size: orbSize,
-                          palette: const PulsarPalette(
-                            Color(0xFFE8FDFF),
-                            Color(0xFF30CFF4),
-                            Color(0xFF755DFF),
-                          ),
-                          value: (progress * 100).round(),
-                          total: 100,
-                          complete: progress >= 1,
-                          hero: true,
-                          showValue: false,
+                        Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            LiquidOrb(
+                              size: orbSize,
+                              palette: const PulsarPalette(
+                                Color(0xFFE8FDFF),
+                                Color(0xFF30CFF4),
+                                Color(0xFF755DFF),
+                              ),
+                              value: (progress * 100).round(),
+                              total: 100,
+                              complete: progress >= 1,
+                              hero: true,
+                              showValue: false,
+                            ),
+                            const _PulsarCoreGlyph(size: 88),
+                          ],
                         ),
-                        const _PulsarCoreGlyph(size: 94),
                         const Text(
                           'WEEKLY CORE',
                           style: TextStyle(
@@ -1328,6 +1324,20 @@ class _GalaxyScreenState extends State<GalaxyScreen>
         );
       },
     );
+  }
+
+  double get _weeklyProgress {
+    final activeDays = widget.controller.plan.where((day) => !day.rest);
+    final total = activeDays.fold<int>(
+      0,
+      (sum, day) => sum + widget.controller.totalSets(day),
+    );
+    if (total == 0) return 0;
+    final done = activeDays.fold<int>(
+      0,
+      (sum, day) => sum + widget.controller.doneSets(day),
+    );
+    return done / total;
   }
 
   void _expandGalaxy() {
