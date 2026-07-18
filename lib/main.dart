@@ -220,7 +220,7 @@ class _PulsarShellState extends State<PulsarShell> {
           child: IndexedStack(index: index, children: pages),
         ),
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: _PulsarDock(
         height: 68,
         backgroundColor: const Color(0xF2081126),
         indicatorColor: const Color(0x384C78FF),
@@ -249,6 +249,115 @@ class _PulsarShellState extends State<PulsarShell> {
       ),
     );
   }
+}
+
+class _PulsarDock extends StatelessWidget {
+  const _PulsarDock({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.destinations,
+    required this.height,
+    required this.backgroundColor,
+    required this.indicatorColor,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final List<NavigationDestination> destinations;
+  final double height;
+  final Color backgroundColor;
+  final Color indicatorColor;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: const Color(0xFF071126),
+    child: SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(18, 7, 18, 9),
+      child: Container(
+        key: const ValueKey('bottom-dock'),
+        height: height,
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(25),
+          color: backgroundColor,
+          border: Border.all(color: const Color(0x405B8FD8)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x3D08101E),
+              blurRadius: 22,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: destinations.asMap().entries.map((entry) {
+            final index = entry.key;
+            final destination = entry.value;
+            final selected = index == selectedIndex;
+            return Expanded(
+              child: Semantics(
+                selected: selected,
+                button: true,
+                label: destination.label,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(19),
+                  onTap: () => onDestinationSelected(index),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(19),
+                      gradient: selected
+                          ? const LinearGradient(
+                              colors: [Color(0x704D63FF), Color(0x4543DDF4)],
+                            )
+                          : null,
+                      border: selected
+                          ? Border.all(color: const Color(0x4D91EFFF))
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconTheme(
+                          data: IconThemeData(
+                            size: 20,
+                            color: selected
+                                ? const Color(0xFFE4F8FF)
+                                : const Color(0xFF7184A5),
+                          ),
+                          child: selected
+                              ? destination.selectedIcon ?? destination.icon
+                              : destination.icon,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 220),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: selected
+                                  ? const Color(0xFFE4F8FF)
+                                  : const Color(0xFF7184A5),
+                            ),
+                            child: Text(destination.label),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    ),
+  );
 }
 
 class PulsarBackdrop extends StatelessWidget {
@@ -491,7 +600,7 @@ class GalaxyScreen extends StatelessWidget {
           child: GestureDetector(
             key: ValueKey('day-hit-${day.keyName}'),
             behavior: HitTestBehavior.opaque,
-            onTap: () => _openDay(context, day),
+            onTap: () => _openDay(context, day, alignment),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -525,7 +634,7 @@ class GalaxyScreen extends StatelessWidget {
     }).toList();
   }
 
-  void _openDay(BuildContext context, WorkoutDay day) {
+  void _openDay(BuildContext context, WorkoutDay day, Alignment origin) {
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 480),
@@ -536,7 +645,11 @@ class GalaxyScreen extends StatelessWidget {
             scale: Tween(begin: .94, end: 1.0).animate(
               CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
             ),
-            child: DayGalaxyScreen(controller: controller, day: day),
+            child: DayGalaxyScreen(
+              controller: controller,
+              day: day,
+              launchOrigin: origin,
+            ),
           ),
         ),
       ),
@@ -579,18 +692,37 @@ class DayGalaxyScreen extends StatefulWidget {
   const DayGalaxyScreen({
     required this.controller,
     required this.day,
+    this.launchOrigin = Alignment.center,
     super.key,
   });
 
   final PulsarController controller;
   final WorkoutDay day;
+  final Alignment launchOrigin;
 
   @override
   State<DayGalaxyScreen> createState() => _DayGalaxyScreenState();
 }
 
-class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
+class _DayGalaxyScreenState extends State<DayGalaxyScreen>
+    with SingleTickerProviderStateMixin {
   final Map<int, bool> armed = {};
+  late final AnimationController _breakController;
+
+  @override
+  void initState() {
+    super.initState();
+    _breakController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1050),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _breakController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -640,7 +772,11 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
                         builder: (context, box) => Stack(
                           children: [
                             Positioned.fill(
-                              child: CustomPaint(painter: DayLinesPainter()),
+                              child: CustomPaint(
+                                painter: DayLinesPainter(
+                                  animation: PulsarMotion.of(context),
+                                ),
+                              ),
                             ),
                             ..._exerciseNodes(box.biggest),
                           ],
@@ -662,7 +798,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
       Alignment(.64, -.24),
       Alignment(-.58, .26),
       Alignment(.55, .39),
-      Alignment(0, .82),
+      Alignment(0, .66),
     ];
     const sizes = [112.0, 96.0, 102.0, 92.0, 98.0, 90.0];
     return day.exercises.asMap().entries.map((entry) {
@@ -670,51 +806,77 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
       final exercise = entry.value;
       final alignment = alignments[index % alignments.length];
       final orbSize = sizes[index % sizes.length];
-      final left = (alignment.x + 1) / 2 * size.width - orbSize / 2;
-      final top = (alignment.y + 1) / 2 * size.height - orbSize / 2;
+      final left = (alignment.x + 1) / 2 * size.width - 66;
+      final rawTop = (alignment.y + 1) / 2 * size.height - orbSize / 2;
+      final top = rawTop.clamp(2.0, size.height - orbSize - 40.0);
+      final launch = widget.launchOrigin.alongSize(size);
+      final target = Offset(left + 66, top + orbSize / 2);
+      final begin = (index * .055).clamp(0.0, .28);
+      final movement = CurvedAnimation(
+        parent: _breakController,
+        curve: Interval(
+          begin,
+          (begin + .68).clamp(0.0, 1.0),
+          curve: Curves.easeOutBack,
+        ),
+      );
       final count = widget.controller.count(day, index);
       final done = count >= exercise.sets;
       return Positioned(
         left: left,
         top: top,
-        child: GestureDetector(
-          key: ValueKey('exercise-hit-${day.keyName}-$index'),
-          behavior: HitTestBehavior.opaque,
-          onTap: () => _tapExercise(index, exercise),
-          child: SizedBox(
-            width: 132,
-            child: Column(
-              children: [
-                LiquidOrb(
-                  key: ValueKey('exercise-${day.keyName}-$index'),
-                  size: orbSize,
-                  palette:
-                      PulsarPalette.values[(day.palette + index) %
-                          PulsarPalette.values.length],
-                  value: count.clamp(0, exercise.sets),
-                  total: exercise.sets,
-                  complete: done,
-                  armed: armed[index] ?? false,
-                  entryDelay: Duration(milliseconds: index * 70),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  exercise.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+        child: AnimatedBuilder(
+          animation: movement,
+          child: GestureDetector(
+            key: ValueKey('exercise-hit-${day.keyName}-$index'),
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _tapExercise(index, exercise),
+            child: SizedBox(
+              width: 132,
+              child: Column(
+                children: [
+                  LiquidOrb(
+                    key: ValueKey('exercise-${day.keyName}-$index'),
+                    size: orbSize,
+                    palette:
+                        PulsarPalette.values[(day.palette + index) %
+                            PulsarPalette.values.length],
+                    value: count.clamp(0, exercise.sets),
+                    total: exercise.sets,
+                    complete: done,
+                    armed: armed[index] ?? false,
+                    entryDelay: Duration(milliseconds: index * 45),
                   ),
-                ),
-                Text(
-                  exercise.reps,
-                  style: const TextStyle(fontSize: 8, color: Color(0xFF7D8BA3)),
-                ),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    exercise.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    exercise.reps,
+                    style: const TextStyle(
+                      fontSize: 8,
+                      color: Color(0xFFA0B2CD),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
+          builder: (context, child) {
+            final t = movement.value;
+            final offset = (launch - target) * (1 - t);
+            return Transform.translate(
+              offset: offset,
+              child: Transform.scale(scale: .16 + t * .84, child: child),
+            );
+          },
         ),
       );
     }).toList();
@@ -746,11 +908,19 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen> {
 }
 
 class DayLinesPainter extends CustomPainter {
+  DayLinesPainter({required this.animation}) : super(repaint: animation);
+
+  final Animation<double> animation;
+
   @override
   void paint(Canvas canvas, Size size) {
+    final theta = animation.value * math.pi * 2;
     final paint = Paint()
-      ..color = const Color(0x151C4A75)
-      ..strokeWidth = .65
+      ..shader = LinearGradient(
+        colors: const [Color(0x125BD9F4), Color(0x475E76FF), Color(0x145BD9F4)],
+        transform: GradientRotation(theta * .12),
+      ).createShader(Offset.zero & size)
+      ..strokeWidth = .85
       ..style = PaintingStyle.stroke;
     canvas.drawPath(
       Path()
@@ -790,6 +960,54 @@ class DayLinesPainter extends CustomPainter {
         ),
       paint,
     );
+
+    final center = Offset(size.width * .5, size.height * .48);
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(-.18 + math.sin(theta * .31) * .035);
+    final orbit = Rect.fromCenter(
+      center: Offset.zero,
+      width: size.width * .92,
+      height: size.height * .34,
+    );
+    canvas.drawArc(
+      orbit,
+      theta * .18,
+      math.pi * 1.42,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = .8
+        ..color = const Color(0x4454CAE8),
+    );
+    canvas.restore();
+
+    for (var index = 0; index < 34; index++) {
+      final x = (index * 71 % 101) / 100 * size.width;
+      final baseY = (index * 43 % 97) / 96 * size.height;
+      final y = (baseY + math.sin(theta * .44 + index) * 5) % size.height;
+      final pulse = (math.sin(theta * .73 + index * 1.9) + 1) * .5;
+      canvas.drawCircle(
+        Offset(x, y),
+        index % 7 == 0 ? 1.35 : .55,
+        Paint()
+          ..color = Color.lerp(
+            const Color(0xFF4B91C7),
+            const Color(0xFFD0F7FF),
+            pulse,
+          )!.withValues(alpha: .22 + pulse * .5),
+      );
+    }
+
+    for (var comet = 0; comet < 3; comet++) {
+      final progress =
+          (animation.value * (.55 + comet * .11) + comet * .29) % 1;
+      final point = Offset(
+        size.width * (.08 + progress * .84),
+        size.height * (.2 + comet * .29 + math.sin(theta * .6 + comet) * .055),
+      );
+      canvas.drawCircle(point, 1.4, Paint()..color = const Color(0xD5A9F4FF));
+    }
   }
 
   @override

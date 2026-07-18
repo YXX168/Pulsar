@@ -19,7 +19,7 @@ void main() {
     expect(find.text('周一'), findsOneWidget);
 
     final sunday = find.byKey(const ValueKey('day-hit-sun'));
-    final navigation = find.byType(NavigationBar);
+    final navigation = find.byKey(const ValueKey('bottom-dock'));
     expect(
       tester.getBottomRight(sunday).dy,
       lessThan(tester.getTopLeft(navigation).dy),
@@ -36,6 +36,10 @@ void main() {
     expect(find.text('周一 · 上肢推力'), findsOneWidget);
     expect(find.text('上斜哑铃卧推'), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(milliseconds: 600));
+    final ropePress = find.byKey(const ValueKey('exercise-hit-mon-5'));
+    expect(tester.getBottomRight(ropePress).dy, lessThan(844));
 
     await tester.tap(find.byKey(const ValueKey('exercise-hit-mon-0')));
     await tester.pump();
