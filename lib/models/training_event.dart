@@ -11,6 +11,7 @@ class TrainingEvent {
     this.kind = 'training',
     this.reps = '',
     this.weight = 0,
+    this.rpe = 0,
     this.note = '',
   }) : id =
            id ??
@@ -28,14 +29,11 @@ class TrainingEvent {
   final String kind;
   final String reps;
   final double weight;
+  final double rpe;
   final String note;
 
-  String get dateKey {
-    final year = timestamp.year.toString().padLeft(4, '0');
-    final month = timestamp.month.toString().padLeft(2, '0');
-    final day = timestamp.day.toString().padLeft(2, '0');
-    return '$year-$month-$day';
-  }
+  String get dateKey =>
+      scheduledDateKey.isEmpty ? _dateKey(timestamp) : scheduledDateKey;
 
   int get estimatedReps {
     final match = RegExp(r'\d+').firstMatch(reps);
@@ -56,6 +54,7 @@ class TrainingEvent {
     'kind': kind,
     'reps': reps,
     'weight': weight,
+    'rpe': rpe,
     'note': note,
   };
 
@@ -78,9 +77,31 @@ class TrainingEvent {
       kind: json['kind'] as String? ?? 'training',
       reps: json['reps'] as String? ?? '',
       weight: (json['weight'] as num?)?.toDouble() ?? 0,
+      rpe: (json['rpe'] as num?)?.toDouble() ?? 0,
       note: json['note'] as String? ?? '',
     );
   }
+
+  TrainingEvent copyWith({
+    String? reps,
+    double? weight,
+    double? rpe,
+    String? note,
+  }) => TrainingEvent(
+    id: id,
+    timestamp: timestamp,
+    dayKey: dayKey,
+    dayLabel: dayLabel,
+    workoutTitle: workoutTitle,
+    exerciseId: exerciseId,
+    exerciseName: exerciseName,
+    scheduledDateKey: scheduledDateKey,
+    kind: kind,
+    reps: reps ?? this.reps,
+    weight: weight ?? this.weight,
+    rpe: rpe ?? this.rpe,
+    note: note ?? this.note,
+  );
 
   static String _dateKey(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'

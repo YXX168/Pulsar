@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'models/workout.dart';
 import 'models/training_event.dart';
@@ -11,8 +13,21 @@ import 'services/storage.dart';
 import 'widgets/liquid_orb.dart';
 import 'widgets/galaxy_scene.dart';
 
-void main() {
+DateTime _startOfWeek(DateTime date) => DateTime(
+  date.year,
+  date.month,
+  date.day,
+).subtract(Duration(days: date.weekday - 1));
+
+DateTime? _parseDateKey(String value) => DateTime.tryParse(value);
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await FlutterDisplayMode.setHighRefreshRate();
+  } catch (_) {
+    // Some emulators do not expose a selectable display mode.
+  }
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -83,6 +98,7 @@ class PulsarController extends ChangeNotifier {
   List<TrainingEvent> events = [];
   bool galaxyMode = true;
   int effectsLevel = 2;
+  DateTime selectedWeekStart = _startOfWeek(DateTime.now());
 
   Future<void> initialize() async {
     plan = await storage.loadPlan();
@@ -94,7 +110,29 @@ class PulsarController extends ChangeNotifier {
     notifyListeners();
   }
 
-  String progressDate(WorkoutDay day) => scheduledDateKey(day.keyName);
+  String progressDate(WorkoutDay day) =>
+      scheduledDateKey(day.keyName, selectedWeekStart);
+
+  String get weekLabel {
+    final end = selectedWeekStart.add(const Duration(days: 6));
+    if (selectedWeekStart.month == end.month) {
+      return '${selectedWeekStart.month}月${selectedWeekStart.day}—${end.day}日';
+    }
+    return '${selectedWeekStart.month}月${selectedWeekStart.day}日—'
+        '${end.month}月${end.day}日';
+  }
+
+  bool get isCurrentWeek => selectedWeekStart == _startOfWeek(DateTime.now());
+
+  void shiftWeek(int delta) {
+    selectedWeekStart = selectedWeekStart.add(Duration(days: delta * 7));
+    notifyListeners();
+  }
+
+  void returnToCurrentWeek() {
+    selectedWeekStart = _startOfWeek(DateTime.now());
+    notifyListeners();
+  }
 
   int count(WorkoutDay day, int index) {
     if (index < 0 || index >= day.exercises.length) return 0;
@@ -110,7 +148,7 @@ class PulsarController extends ChangeNotifier {
   );
 
   double progress(WorkoutDay day) {
-    if (day.rest) return 0;
+    if (day.rest || isSkipped(day)) return 0;
     final total = totalSets(day);
     return total == 0 ? 0 : doneSets(day) / total;
   }
@@ -127,6 +165,7 @@ class PulsarController extends ChangeNotifier {
     final current = count(day, index);
     final next = value.clamp(0, exercise.sets);
     completed.putIfAbsent(date, () => {});
+    completed[date]!.remove('__skipped__');
     completed[date]![exercise.id] = next;
 
     if (next > current) {
@@ -166,12 +205,77 @@ class PulsarController extends ChangeNotifier {
     await storage.saveEvents(events);
   }
 
-  int setsOnDate(DateTime date) => events.where((event) {
-    final time = event.timestamp;
-    return time.year == date.year &&
-        time.month == date.month &&
-        time.day == date.day;
-  }).length;
+  List<TrainingEvent> eventsForSummary(DailyTrainingSummary summary) {
+    final date = _dateKey(summary.date);
+    return events
+        .where(
+          (event) => event.dateKey == date && event.dayKey == summary.dayKey,
+        )
+        .toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+
+  Future<bool> addDetailedSet(
+    WorkoutDay day,
+    int index, {
+    required String reps,
+    required double weight,
+    required double rpe,
+    required String note,
+  }) async {
+    if (index < 0 || index >= day.exercises.length) return false;
+    final exercise = day.exercises[index];
+    final current = count(day, index);
+    if (current >= exercise.sets) return false;
+    final date = progressDate(day);
+    completed.putIfAbsent(date, () => {})
+      ..remove('__skipped__')
+      ..[exercise.id] = current + 1;
+    events.insert(
+      0,
+      TrainingEvent(
+        timestamp: DateTime.now(),
+        dayKey: day.keyName,
+        dayLabel: day.day,
+        workoutTitle: day.title,
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        scheduledDateKey: date,
+        kind: exercise.kind,
+        reps: reps.trim().isEmpty ? exercise.reps : reps.trim(),
+        weight: weight,
+        rpe: rpe.clamp(0, 10),
+        note: note.trim(),
+      ),
+    );
+    notifyListeners();
+    await storage.saveSets(completed);
+    await storage.saveEvents(events);
+    return true;
+  }
+
+  Future<void> updateEvent(TrainingEvent updated) async {
+    final index = events.indexWhere((event) => event.id == updated.id);
+    if (index < 0) return;
+    events[index] = updated;
+    notifyListeners();
+    await storage.saveEvents(events);
+  }
+
+  Future<void> deleteEvent(TrainingEvent event) async {
+    final removed = events.indexWhere((item) => item.id == event.id);
+    if (removed < 0) return;
+    events.removeAt(removed);
+    final values = completed[event.scheduledDateKey];
+    final current = values?[event.exerciseId] ?? 0;
+    if (current > 0) values![event.exerciseId] = current - 1;
+    notifyListeners();
+    await storage.saveSets(completed);
+    await storage.saveEvents(events);
+  }
+
+  int setsOnDate(DateTime date) =>
+      events.where((event) => event.scheduledDateKey == _dateKey(date)).length;
 
   int get activeDays => events.map((event) => event.dateKey).toSet().length;
 
@@ -215,12 +319,10 @@ class PulsarController extends ChangeNotifier {
     }
     final summaries = grouped.values.map((items) {
       final first = items.first;
+      final scheduled =
+          _parseDateKey(first.scheduledDateKey) ?? first.timestamp;
       return DailyTrainingSummary(
-        date: DateTime(
-          first.timestamp.year,
-          first.timestamp.month,
-          first.timestamp.day,
-        ),
+        date: DateTime(scheduled.year, scheduled.month, scheduled.day),
         dayKey: first.dayKey,
         dayLabel: first.dayLabel,
         workoutTitle: first.workoutTitle,
@@ -242,6 +344,26 @@ class PulsarController extends ChangeNotifier {
     await storage.savePlan(plan);
   }
 
+  bool isSkipped(WorkoutDay day) =>
+      completed[progressDate(day)]?['__skipped__'] == 1;
+
+  Future<void> toggleSkipped(WorkoutDay day) async {
+    final date = progressDate(day);
+    final values = completed.putIfAbsent(date, () => {});
+    if (values['__skipped__'] == 1) {
+      values.remove('__skipped__');
+    } else {
+      values['__skipped__'] = 1;
+      for (final exercise in day.exercises) {
+        values.remove(exercise.id);
+      }
+      events.removeWhere((event) => event.scheduledDateKey == date);
+    }
+    notifyListeners();
+    await storage.saveSets(completed);
+    await storage.saveEvents(events);
+  }
+
   Future<void> setGalaxyMode(bool enabled) async {
     if (galaxyMode == enabled) return;
     galaxyMode = enabled;
@@ -256,11 +378,12 @@ class PulsarController extends ChangeNotifier {
   }
 
   String exportBackup() => jsonEncode({
-    'schema': 2,
+    'schema': 3,
     'exportedAt': DateTime.now().toIso8601String(),
     'plan': plan.map((day) => day.toJson()).toList(),
     'completed': completed,
     'events': events.map((event) => event.toJson()).toList(),
+    'settings': {'galaxyMode': galaxyMode, 'effectsLevel': effectsLevel},
   });
 
   Future<bool> importBackup(String raw) async {
@@ -270,8 +393,8 @@ class PulsarController extends ChangeNotifier {
           .whereType<Map>()
           .map((item) => WorkoutDay.fromJson(Map<String, dynamic>.from(item)))
           .toList();
-      final restoredSets = Map<String, dynamic>.from(data['completed'] as Map)
-          .map(
+      final restoredSets =
+          Map<String, dynamic>.from(data['completed'] as Map? ?? const {}).map(
             (date, values) => MapEntry(
               date,
               Map<String, dynamic>.from(
@@ -279,7 +402,7 @@ class PulsarController extends ChangeNotifier {
               ).map((id, value) => MapEntry(id, (value as num).toInt())),
             ),
           );
-      final restoredEvents = (data['events'] as List)
+      final restoredEvents = (data['events'] as List? ?? const [])
           .whereType<Map>()
           .map(
             (item) => TrainingEvent.fromJson(Map<String, dynamic>.from(item)),
@@ -289,7 +412,20 @@ class PulsarController extends ChangeNotifier {
       plan = restoredPlan;
       completed = restoredSets;
       events = restoredEvents;
+      final settings = data['settings'];
+      if (settings is Map) {
+        final values = Map<String, dynamic>.from(settings);
+        galaxyMode = values['galaxyMode'] as bool? ?? galaxyMode;
+        effectsLevel =
+            ((values['effectsLevel'] as num?)?.toInt() ?? effectsLevel).clamp(
+              0,
+              2,
+            );
+      }
+      selectedWeekStart = _startOfWeek(DateTime.now());
       await storage.replaceAll(plan: plan, sets: completed, events: events);
+      await storage.saveGalaxyMode(galaxyMode);
+      await storage.saveEffectsLevel(effectsLevel);
       notifyListeners();
       return true;
     } catch (_) {
@@ -783,6 +919,103 @@ class _Brand extends StatelessWidget {
   );
 }
 
+class _WeekNavigator extends StatelessWidget {
+  const _WeekNavigator({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _weekButton(
+          tooltip: '上一周',
+          icon: Icons.chevron_left_rounded,
+          onTap: () => controller.shiftWeek(-1),
+        ),
+        const SizedBox(width: 8),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween(begin: .96, end: 1.0).animate(animation),
+              child: child,
+            ),
+          ),
+          child: GestureDetector(
+            key: ValueKey(controller.weekLabel),
+            onTap: controller.isCurrentWeek
+                ? null
+                : controller.returnToCurrentWeek,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 146),
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                color: const Color(0x75121E35),
+                border: Border.all(color: const Color(0x30456E93)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    controller.weekLabel,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFC8EEFA),
+                    ),
+                  ),
+                  if (!controller.isCurrentWeek)
+                    const Text(
+                      '轻触回到本周',
+                      style: TextStyle(fontSize: 6, color: Color(0xFF718AA7)),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _weekButton(
+          tooltip: '下一周',
+          icon: Icons.chevron_right_rounded,
+          onTap: () => controller.shiftWeek(1),
+        ),
+      ],
+    ),
+  );
+
+  Widget _weekButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) => Tooltip(
+    message: tooltip,
+    child: InkResponse(
+      radius: 22,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0x66131F37),
+          border: Border.all(color: const Color(0x294A7598)),
+        ),
+        child: Icon(icon, size: 18, color: const Color(0xFF91DDEA)),
+      ),
+    ),
+  );
+}
+
 class NormalWorkoutScreen extends StatefulWidget {
   const NormalWorkoutScreen({required this.controller, super.key});
 
@@ -827,6 +1060,7 @@ class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
             ),
           ],
         ),
+        _WeekNavigator(controller: widget.controller),
         _NormalDaySelector(
           plan: widget.controller.plan,
           selected: selectedDay,
@@ -884,6 +1118,8 @@ class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
                                               index) %
                                           PulsarPalette.values.length],
                                   onTap: () => _toggle(pageDay, index),
+                                  onLongPress: () =>
+                                      _recordDetailed(pageDay, index),
                                 ),
                           ),
                   ),
@@ -908,6 +1144,30 @@ class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
       recordSet: completing,
     );
     if (mounted) setState(() {});
+  }
+
+  Future<void> _recordDetailed(WorkoutDay day, int index) async {
+    final exercise = day.exercises[index];
+    final draft = await _showSetEditor(context, exercise: exercise);
+    if (draft == null || !mounted) return;
+    final added = await widget.controller.addDetailedSet(
+      day,
+      index,
+      reps: draft.reps,
+      weight: draft.weight,
+      rpe: draft.rpe,
+      note: draft.note,
+    );
+    if (!mounted) return;
+    _showPulsarNotice(
+      context,
+      icon: added ? Icons.bolt_rounded : Icons.info_outline_rounded,
+      title: added ? '详细训练组已记录' : '该项目已经完成',
+      detail: added
+          ? '${exercise.name} · RPE ${draft.rpe.toStringAsFixed(1)}'
+          : '重置后可继续记录',
+      error: !added,
+    );
   }
 }
 
@@ -935,30 +1195,42 @@ class _NormalDaySelector extends StatelessWidget {
         return GestureDetector(
           key: ValueKey('matrix-day-$index'),
           onTap: () => onSelected(index),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            width: active ? 62 : 43,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: active
-                  ? const LinearGradient(
-                      colors: [Color(0xFF4667D8), Color(0xFF21B8CF)],
-                    )
-                  : null,
-              color: active ? null : const Color(0x80101A30),
-              border: Border.all(
-                color: active
-                    ? const Color(0x806FEAFF)
-                    : const Color(0x263F567B),
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            scale: active ? 1.06 : .94,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              width: 48,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: active
+                    ? const LinearGradient(
+                        colors: [Color(0xFF4667D8), Color(0xFF21B8CF)],
+                      )
+                    : null,
+                color: active ? null : const Color(0x80101A30),
+                border: Border.all(
+                  color: active
+                      ? const Color(0x806FEAFF)
+                      : const Color(0x263F567B),
+                ),
+                boxShadow: active
+                    ? const [
+                        BoxShadow(color: Color(0x3D48CDE2), blurRadius: 14),
+                      ]
+                    : null,
               ),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              plan[index].day,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                color: active ? Colors.white : const Color(0xFF8798B3),
+              alignment: Alignment.center,
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                  color: active ? Colors.white : const Color(0xFF8798B3),
+                ),
+                child: Text(plan[index].day),
               ),
             ),
           ),
@@ -1033,6 +1305,47 @@ class _NormalProgressCard extends StatelessWidget {
               valueColor: const AlwaysStoppedAnimation(Color(0xFF55DFF5)),
             ),
           ),
+          if (day.exercises.isNotEmpty) ...[
+            const SizedBox(height: 9),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                key: ValueKey('skip-${day.keyName}'),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  controller.toggleSkipped(day);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: controller.isSkipped(day)
+                        ? const Color(0x334D8FAE)
+                        : const Color(0x241B2B45),
+                    border: Border.all(
+                      color: controller.isSkipped(day)
+                          ? const Color(0x605AD7E7)
+                          : const Color(0x203D5475),
+                    ),
+                  ),
+                  child: Text(
+                    controller.isSkipped(day) ? '恢复本周计划' : '仅本周跳过',
+                    style: TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
+                      color: controller.isSkipped(day)
+                          ? const Color(0xFF8BE9F3)
+                          : const Color(0xFF7E91AD),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1047,6 +1360,7 @@ class _NormalExerciseCard extends StatelessWidget {
     required this.value,
     required this.palette,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final WorkoutDay day;
@@ -1055,6 +1369,7 @@ class _NormalExerciseCard extends StatelessWidget {
   final int value;
   final PulsarPalette palette;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1070,6 +1385,7 @@ class _NormalExerciseCard extends StatelessWidget {
         child: InkWell(
           key: ValueKey('normal-exercise-${day.keyName}-$index'),
           onTap: onTap,
+          onLongPress: onLongPress,
           borderRadius: BorderRadius.circular(20),
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -1229,6 +1545,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                 ),
               ],
             ),
+      if (expanded) _WeekNavigator(controller: widget.controller),
       Expanded(
         child: LayoutBuilder(
           builder: (context, box) {
@@ -1412,7 +1729,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
       final index = entry.key;
       final day = entry.value;
       final alignment = alignments[index];
-      final isToday = index == todayIndex;
+      final isToday = widget.controller.isCurrentWeek && index == todayIndex;
       final orbSize = sizes[index] + (isToday ? 10 : 0);
       final left = (alignment.x + 1) / 2 * size.width - orbSize / 2;
       final rawTop = (alignment.y + 1) / 2 * size.height - orbSize / 2;
@@ -1450,6 +1767,12 @@ class _GalaxyScreenState extends State<GalaxyScreen>
               key: ValueKey('day-hit-${day.keyName}'),
               behavior: HitTestBehavior.opaque,
               onTap: () => _openDay(context, day, alignment),
+              onLongPress: day.exercises.isEmpty
+                  ? null
+                  : () {
+                      HapticFeedback.mediumImpact();
+                      widget.controller.toggleSkipped(day);
+                    },
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1487,7 +1810,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    day.title,
+                    widget.controller.isSkipped(day) ? '本周已跳过' : day.title,
                     style: const TextStyle(
                       fontSize: 8,
                       color: Color(0xFFA6B9D7),
@@ -1560,23 +1883,7 @@ class _PulsarCoreGlyph extends StatelessWidget {
   Widget build(BuildContext context) => IgnorePointer(
     child: SizedBox.square(
       dimension: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: CustomPaint(painter: const _PulsarCoreGlyphPainter()),
-          ),
-          const Icon(
-            Icons.hub_rounded,
-            size: 34,
-            color: Color(0xFFF4FEFF),
-            shadows: [
-              Shadow(color: Color(0xFF8CEEFF), blurRadius: 12),
-              Shadow(color: Color(0xFF755EFF), blurRadius: 24),
-            ],
-          ),
-        ],
-      ),
+      child: CustomPaint(painter: const _PulsarCoreGlyphPainter()),
     ),
   );
 }
@@ -1587,31 +1894,118 @@ class _PulsarCoreGlyphPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final glow = Paint()
-      ..color = const Color(0xFF9AF3FF).withValues(alpha: .24)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    canvas.drawCircle(center, size.width * .18, glow);
+    final unit = size.shortestSide / 88;
+    canvas.drawCircle(
+      center,
+      25 * unit,
+      Paint()
+        ..color = const Color(0xFF56E6F5).withValues(alpha: .30)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 14 * unit),
+    );
 
-    final line = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFFF1FDFF);
-    final r = size.width * .25;
-    for (var arm = 0; arm < 3; arm++) {
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: r - arm * 4),
-        -math.pi / 2 + arm * math.pi * 2 / 3,
-        math.pi * .52,
-        false,
-        line
-          ..color = Color.lerp(
-            const Color(0xFFFFFFFF),
-            const Color(0xFF77DAFF),
-            arm / 3,
-          )!,
-      );
-    }
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+
+    // Twin polar beams make the mark read as a pulsar, not a generic app icon.
+    final beam = Path()
+      ..moveTo(-4 * unit, -13 * unit)
+      ..lineTo(-1.4 * unit, -35 * unit)
+      ..lineTo(1.4 * unit, -35 * unit)
+      ..lineTo(4 * unit, -13 * unit)
+      ..close();
+    canvas.drawPath(
+      beam,
+      Paint()
+        ..shader =
+            const LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [Color(0xE8FFFFFF), Color(0x0076E8F7)],
+            ).createShader(
+              Rect.fromLTWH(-5 * unit, -36 * unit, 10 * unit, 24 * unit),
+            ),
+    );
+    canvas.save();
+    canvas.scale(1, -1);
+    canvas.drawPath(
+      beam,
+      Paint()
+        ..shader =
+            const LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [Color(0xD8FFFFFF), Color(0x006B8FFF)],
+            ).createShader(
+              Rect.fromLTWH(-5 * unit, -36 * unit, 10 * unit, 24 * unit),
+            ),
+    );
+    canvas.restore();
+
+    final orbitRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: 58 * unit,
+      height: 25 * unit,
+    );
+    canvas.save();
+    canvas.rotate(-.22);
+    canvas.drawArc(
+      orbitRect,
+      .12,
+      math.pi * .78,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 3.2 * unit
+        ..shader = const LinearGradient(
+          colors: [Color(0xFF8CF3FF), Color(0xFFFFFFFF), Color(0xFF8276FF)],
+        ).createShader(orbitRect),
+    );
+    canvas.drawArc(
+      orbitRect,
+      math.pi + .12,
+      math.pi * .78,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.45 * unit
+        ..color = const Color(0xB46FD9F4),
+    );
+    canvas.drawCircle(
+      Offset(orbitRect.right - 3 * unit, -1 * unit),
+      2.8 * unit,
+      Paint()..color = const Color(0xFFE8FDFF),
+    );
+    canvas.restore();
+
+    final diamond = Path()
+      ..moveTo(0, -13 * unit)
+      ..lineTo(11 * unit, 0)
+      ..lineTo(0, 13 * unit)
+      ..lineTo(-11 * unit, 0)
+      ..close();
+    canvas.drawPath(
+      diamond,
+      Paint()
+        ..shader =
+            const RadialGradient(
+              colors: [Color(0xFFFFFFFF), Color(0xFF8DEFFF), Color(0xFF6570F4)],
+              stops: [0, .48, 1],
+            ).createShader(
+              Rect.fromCenter(
+                center: Offset.zero,
+                width: 25 * unit,
+                height: 27 * unit,
+              ),
+            ),
+    );
+    canvas.drawCircle(
+      Offset.zero,
+      3.4 * unit,
+      Paint()..color = const Color(0xFFFFFFFF),
+    );
+    canvas.restore();
   }
 
   @override
@@ -1645,6 +2039,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   Timer? _restTimer;
   int restRemaining = 0;
   int restTotal = 0;
+  bool restPaused = false;
   bool _allowPop = false;
   bool _closing = false;
 
@@ -1723,6 +2118,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                         )
                       : LayoutBuilder(
                           builder: (context, box) => Stack(
+                            clipBehavior: Clip.none,
                             children: [
                               Positioned.fill(
                                 child: CustomPaint(
@@ -1747,11 +2143,14 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                               ..._exerciseNodes(box.biggest),
                               if (restRemaining > 0)
                                 Positioned(
-                                  left: 10,
-                                  top: 10,
+                                  left: 18,
+                                  top: 18,
                                   child: _RestTimerRail(
                                     seconds: restRemaining,
                                     total: restTotal,
+                                    paused: restPaused,
+                                    onTogglePause: _toggleRestTimer,
+                                    onAddTime: _addRestTime,
                                     onClose: _stopRestTimer,
                                   ),
                                 ),
@@ -1808,6 +2207,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
             key: ValueKey('exercise-hit-${day.keyName}-$index'),
             behavior: HitTestBehavior.opaque,
             onTap: () => _tapExercise(index, exercise),
+            onLongPress: () => _recordDetailed(index, exercise),
             child: SizedBox(
               width: 150,
               child: Column(
@@ -1929,6 +2329,42 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     if (mounted) setState(() {});
   }
 
+  Future<void> _recordDetailed(int index, ExercisePlan exercise) async {
+    HapticFeedback.mediumImpact();
+    final draft = await _showSetEditor(context, exercise: exercise);
+    if (draft == null || !mounted) return;
+    final added = await widget.controller.addDetailedSet(
+      widget.day,
+      index,
+      reps: draft.reps,
+      weight: draft.weight,
+      rpe: draft.rpe,
+      note: draft.note,
+    );
+    if (!mounted) return;
+    if (added) {
+      setState(() {
+        activeExercise = index;
+        showExerciseMeter = true;
+      });
+      _pulseController.forward(from: 0);
+      _meterTimer?.cancel();
+      _meterTimer = Timer(const Duration(seconds: 1), () {
+        if (mounted) setState(() => showExerciseMeter = false);
+      });
+      if (exercise.restSeconds > 0) _startRestTimer(exercise.restSeconds);
+    }
+    _showPulsarNotice(
+      context,
+      icon: added ? Icons.bolt_rounded : Icons.info_outline_rounded,
+      title: added ? '详细训练组已记录' : '该项目已经完成',
+      detail: added
+          ? '${exercise.name} · RPE ${draft.rpe.toStringAsFixed(1)}'
+          : '重置后可继续记录',
+      error: !added,
+    );
+  }
+
   Future<void> _closeDay() async {
     if (_closing) return;
     _closing = true;
@@ -1947,14 +2383,17 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     setState(() {
       restRemaining = seconds;
       restTotal = seconds;
+      restPaused = false;
     });
     _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (restPaused) return;
       if (!mounted || restRemaining <= 1) {
         timer.cancel();
         if (mounted) {
           setState(() {
             restRemaining = 0;
             restTotal = 0;
+            restPaused = false;
           });
           HapticFeedback.mediumImpact();
         }
@@ -1969,7 +2408,21 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     setState(() {
       restRemaining = 0;
       restTotal = 0;
+      restPaused = false;
     });
+  }
+
+  void _toggleRestTimer() {
+    setState(() => restPaused = !restPaused);
+    HapticFeedback.selectionClick();
+  }
+
+  void _addRestTime() {
+    setState(() {
+      restRemaining += 15;
+      restTotal += 15;
+    });
+    HapticFeedback.lightImpact();
   }
 }
 
@@ -1977,57 +2430,358 @@ class _RestTimerRail extends StatelessWidget {
   const _RestTimerRail({
     required this.seconds,
     required this.total,
+    required this.paused,
+    required this.onTogglePause,
+    required this.onAddTime,
     required this.onClose,
   });
 
   final int seconds;
   final int total;
+  final bool paused;
+  final VoidCallback onTogglePause;
+  final VoidCallback onAddTime;
   final VoidCallback onClose;
 
   @override
-  Widget build(BuildContext context) => Container(
-    key: const ValueKey('rest-timer'),
-    width: 44,
-    height: 128,
-    padding: const EdgeInsets.fromLTRB(7, 8, 7, 5),
-    decoration: BoxDecoration(
-      color: const Color(0xD90D1930),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: const Color(0x5550D7EB)),
-      boxShadow: const [BoxShadow(color: Color(0x332DCDE8), blurRadius: 18)],
-    ),
-    child: Column(
-      children: [
-        const Icon(Icons.timer_outlined, size: 14, color: Color(0xFF73E6F3)),
-        const SizedBox(height: 5),
-        Text(
-          '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
-          style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 7),
-        Expanded(
-          child: RotatedBox(
-            quarterTurns: 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(5),
-              child: LinearProgressIndicator(
-                value: total <= 0 ? 0 : seconds / total,
-                backgroundColor: const Color(0xFF182642),
-                valueColor: const AlwaysStoppedAnimation(Color(0xFF58E4F2)),
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: SizedBox(
+      key: const ValueKey('rest-timer'),
+      width: 54,
+      height: 174,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x4A43E3F4), blurRadius: 18),
+                  BoxShadow(color: Color(0x303D5FFF), blurRadius: 30),
+                ],
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 4),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onClose,
-          child: const Padding(
-            padding: EdgeInsets.all(4),
-            child: Icon(Icons.close_rounded, size: 11),
+          Positioned.fill(
+            child: Container(
+              margin: const EdgeInsets.all(4),
+              padding: const EdgeInsets.fromLTRB(8, 9, 8, 6),
+              decoration: BoxDecoration(
+                color: const Color(0xF20D1930),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0x8058DCEB)),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    paused ? Icons.pause_circle_outline : Icons.timer_outlined,
+                    size: 15,
+                    color: const Color(0xFF73E6F3),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
+                    style: const TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Expanded(
+                    child: RotatedBox(
+                      quarterTurns: 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(5),
+                        child: LinearProgressIndicator(
+                          value: total <= 0 ? 0 : seconds / total,
+                          backgroundColor: const Color(0xFF182642),
+                          valueColor: const AlwaysStoppedAnimation(
+                            Color(0xFF58E4F2),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  _TimerRailButton(icon: Icons.add_rounded, onTap: onAddTime),
+                  _TimerRailButton(
+                    icon: paused
+                        ? Icons.play_arrow_rounded
+                        : Icons.pause_rounded,
+                    onTap: onTogglePause,
+                  ),
+                  _TimerRailButton(icon: Icons.close_rounded, onTap: onClose),
+                ],
+              ),
+            ),
           ),
+          Positioned(
+            top: 1,
+            left: 14,
+            right: 14,
+            height: 3,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(3),
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0x0058E4F2),
+                    Color(0xFFFFFFFF),
+                    Color(0x0058E4F2),
+                  ],
+                ),
+                boxShadow: const [
+                  BoxShadow(color: Color(0xAA58E4F2), blurRadius: 9),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _TimerRailButton extends StatelessWidget {
+  const _TimerRailButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Icon(icon, size: 11, color: const Color(0xFF9BCAD5)),
+    ),
+  );
+}
+
+class _SetDraft {
+  const _SetDraft({
+    required this.reps,
+    required this.weight,
+    required this.rpe,
+    required this.note,
+  });
+
+  final String reps;
+  final double weight;
+  final double rpe;
+  final String note;
+}
+
+Future<_SetDraft?> _showSetEditor(
+  BuildContext context, {
+  required ExercisePlan exercise,
+  TrainingEvent? event,
+}) => showModalBottomSheet<_SetDraft>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  backgroundColor: Colors.transparent,
+  builder: (context) => _SetEditorSheet(exercise: exercise, event: event),
+);
+
+class _SetEditorSheet extends StatefulWidget {
+  const _SetEditorSheet({required this.exercise, this.event});
+
+  final ExercisePlan exercise;
+  final TrainingEvent? event;
+
+  @override
+  State<_SetEditorSheet> createState() => _SetEditorSheetState();
+}
+
+class _SetEditorSheetState extends State<_SetEditorSheet> {
+  late final TextEditingController _reps;
+  late final TextEditingController _weight;
+  late final TextEditingController _note;
+  late double _rpe;
+
+  @override
+  void initState() {
+    super.initState();
+    final event = widget.event;
+    _reps = TextEditingController(text: event?.reps ?? widget.exercise.reps);
+    final weight = event?.weight ?? widget.exercise.weight;
+    _weight = TextEditingController(
+      text: weight == 0 ? '' : weight.toStringAsFixed(weight % 1 == 0 ? 0 : 1),
+    );
+    _note = TextEditingController(text: event?.note ?? widget.exercise.note);
+    _rpe = event == null || event.rpe == 0 ? 7.5 : event.rpe;
+  }
+
+  @override
+  void dispose() {
+    _reps.dispose();
+    _weight.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedPadding(
+    duration: const Duration(milliseconds: 180),
+    curve: Curves.easeOutCubic,
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+      decoration: const BoxDecoration(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF152743), Color(0xFF0B1329)],
         ),
-      ],
+        border: Border(top: BorderSide(color: Color(0x665DE4F2))),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF4E6F91), Color(0xFF72E5EF)],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              widget.event == null ? '记录这一组' : '编辑训练组',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              widget.exercise.name,
+              style: const TextStyle(fontSize: 10, color: Color(0xFF89A4C1)),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: _field(
+                    controller: _reps,
+                    label: '实际次数 / 时长',
+                    hint: widget.exercise.reps,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 110,
+                  child: _field(
+                    controller: _weight,
+                    label: '重量 kg',
+                    hint: '0',
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Text(
+                  '主观强度 RPE',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                Text(
+                  _rpe.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF81EDF5),
+                  ),
+                ),
+              ],
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: const Color(0xFF51DDEB),
+                inactiveTrackColor: const Color(0xFF1B2A45),
+                thumbColor: const Color(0xFFE9FDFF),
+                overlayColor: const Color(0x2451DDEB),
+                trackHeight: 3,
+              ),
+              child: Slider(
+                value: _rpe,
+                min: 1,
+                max: 10,
+                divisions: 18,
+                onChanged: (value) => setState(() => _rpe = value),
+              ),
+            ),
+            const SizedBox(height: 6),
+            _field(controller: _note, label: '本组备注', hint: '状态、动作感受或下一组调整'),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: FilledButton.icon(
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.of(context).pop(
+                    _SetDraft(
+                      reps: _reps.text.trim(),
+                      weight: double.tryParse(_weight.text.trim()) ?? 0,
+                      rpe: _rpe,
+                      note: _note.text.trim(),
+                    ),
+                  );
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF267D9F),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(17),
+                  ),
+                ),
+                icon: const Icon(Icons.bolt_rounded, size: 18),
+                label: Text(widget.event == null ? '点亮这一组' : '保存修改'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _field({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    TextInputType? keyboardType,
+  }) => TextField(
+    controller: controller,
+    keyboardType: keyboardType,
+    style: const TextStyle(fontSize: 12),
+    decoration: InputDecoration(
+      labelText: label,
+      hintText: hint,
+      labelStyle: const TextStyle(fontSize: 9, color: Color(0xFF8098B5)),
+      filled: true,
+      fillColor: const Color(0x68101B31),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+        borderSide: const BorderSide(color: Color(0x303B658A)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+        borderSide: const BorderSide(color: Color(0x303B658A)),
+      ),
     ),
   );
 }
@@ -2319,6 +3073,7 @@ class RecordsScreen extends StatelessWidget {
                     .take(12)
                     .map(
                       (summary) => _HistoryCard(
+                        controller: controller,
                         summary: summary,
                         palette: _paletteFor(controller, summary.dayKey),
                       ),
@@ -2679,73 +3434,406 @@ class _PersonalBestCard extends StatelessWidget {
 }
 
 class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.summary, required this.palette});
+  const _HistoryCard({
+    required this.controller,
+    required this.summary,
+    required this.palette,
+  });
 
+  final PulsarController controller;
   final DailyTrainingSummary summary;
   final PulsarPalette palette;
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 9),
-    padding: const EdgeInsets.fromLTRB(8, 8, 15, 8),
-    decoration: BoxDecoration(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 9),
+    child: Material(
       color: const Color(0x92101827),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: palette.edge.withValues(alpha: .13)),
-    ),
-    child: Row(
-      children: [
-        LiquidOrb(
-          size: 66,
-          palette: palette,
-          value: summary.sets,
-          total: summary.sets,
-          complete: true,
-          showValue: false,
-          animate: false,
-        ),
-        const SizedBox(width: 5),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _TrainingReportScreen(
+                controller: controller,
+                summary: summary,
+                palette: palette,
+              ),
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: palette.edge.withValues(alpha: .13)),
+          ),
+          child: Row(
             children: [
-              Text(
-                '${summary.dayLabel} · ${summary.workoutTitle}',
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
+              LiquidOrb(
+                size: 66,
+                palette: palette,
+                value: summary.sets,
+                total: summary.sets,
+                complete: true,
+                showValue: false,
+                animate: false,
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${summary.dayLabel} · ${summary.workoutTitle}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      summary.volume > 0
+                          ? '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个动作 · ${summary.volume.toStringAsFixed(0)}kg'
+                          : '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个事项',
+                      style: const TextStyle(
+                        fontSize: 8,
+                        color: Color(0xFF7E8BA1),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 5),
-              Text(
-                summary.volume > 0
-                    ? '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个动作 · ${summary.volume.toStringAsFixed(0)}kg'
-                    : '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个事项',
-                style: const TextStyle(fontSize: 8, color: Color(0xFF7E8BA1)),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${summary.sets}',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: palette.core,
+                    ),
+                  ),
+                  const Text(
+                    '组',
+                    style: TextStyle(fontSize: 8, color: Color(0xFF7A879C)),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 5),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 17,
+                color: Color(0xFF667B99),
               ),
             ],
           ),
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '${summary.sets}',
-              style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-                color: palette.core,
-              ),
+      ),
+    ),
+  );
+}
+
+class _TrainingReportScreen extends StatelessWidget {
+  const _TrainingReportScreen({
+    required this.controller,
+    required this.summary,
+    required this.palette,
+  });
+
+  final PulsarController controller;
+  final DailyTrainingSummary summary;
+  final PulsarPalette palette;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) {
+      final events = controller.eventsForSummary(summary);
+      final volume = events.fold<double>(
+        0,
+        (total, event) => total + event.estimatedVolume,
+      );
+      final duration = events.length < 2
+          ? Duration.zero
+          : events.last.timestamp.difference(events.first.timestamp);
+      final grouped = <String, List<TrainingEvent>>{};
+      for (final event in events) {
+        grouped.putIfAbsent(event.exerciseName, () => []).add(event);
+      }
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: PulsarBackdrop(
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                PulsarHeader(
+                  title: '训练报告',
+                  onBack: () => Navigator.of(context).pop(),
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(18, 2, 18, 30),
+                    children: [
+                      _reportHero(events.length, volume, duration),
+                      const SizedBox(height: 18),
+                      if (events.isEmpty)
+                        const _EmptyHistory()
+                      else
+                        ...grouped.entries.map(
+                          (entry) =>
+                              _exerciseGroup(context, entry.key, entry.value),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const Text(
-              '组',
-              style: TextStyle(fontSize: 8, color: Color(0xFF7A879C)),
+          ),
+        ),
+      );
+    },
+  );
+
+  Widget _reportHero(int sets, double volume, Duration duration) => Container(
+    padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(25),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [palette.edge.withValues(alpha: .24), const Color(0xD20C162C)],
+      ),
+      border: Border.all(color: palette.core.withValues(alpha: .25)),
+      boxShadow: [
+        BoxShadow(color: palette.edge.withValues(alpha: .10), blurRadius: 28),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${summary.date.month}月${summary.date.day}日 · ${summary.dayLabel}',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: palette.core,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          summary.workoutTitle,
+          style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            _reportMetric('$sets', '训练组'),
+            _reportMetric(
+              volume >= 1000
+                  ? '${(volume / 1000).toStringAsFixed(1)}t'
+                  : '${volume.toStringAsFixed(0)}kg',
+              '容量',
+            ),
+            _reportMetric(
+              duration.inMinutes == 0 ? '—' : '${duration.inMinutes}m',
+              '跨度',
             ),
           ],
         ),
       ],
     ),
   );
+
+  Widget _reportMetric(String value, String label) => Expanded(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+        ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 8, color: Color(0xFF8294AD)),
+        ),
+      ],
+    ),
+  );
+
+  Widget _exerciseGroup(
+    BuildContext context,
+    String name,
+    List<TrainingEvent> events,
+  ) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.fromLTRB(14, 14, 10, 10),
+    decoration: BoxDecoration(
+      color: const Color(0x9A101A2D),
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: const Color(0x253D5E80)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 8),
+        ...events.asMap().entries.map(
+          (entry) => _eventRow(context, entry.key + 1, entry.value),
+        ),
+      ],
+    ),
+  );
+
+  Widget _eventRow(
+    BuildContext context,
+    int setNumber,
+    TrainingEvent event,
+  ) => Container(
+    margin: const EdgeInsets.only(bottom: 6),
+    padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+    decoration: BoxDecoration(
+      color: const Color(0x4219273E),
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 25,
+          height: 25,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: palette.edge.withValues(alpha: .18),
+          ),
+          child: Text(
+            '$setNumber',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+              color: palette.core,
+            ),
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                [
+                  if (event.weight > 0)
+                    '${event.weight.toStringAsFixed(event.weight % 1 == 0 ? 0 : 1)} kg',
+                  if (event.reps.isNotEmpty) event.reps,
+                  if (event.rpe > 0) 'RPE ${event.rpe.toStringAsFixed(1)}',
+                ].join('  ·  '),
+                style: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              if (event.note.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  event.note,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 8, color: Color(0xFF7F93AE)),
+                ),
+              ],
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: '编辑',
+          onPressed: () => _edit(context, event),
+          icon: const Icon(Icons.edit_outlined, size: 15),
+        ),
+        IconButton(
+          tooltip: '删除',
+          onPressed: () => _delete(context, event),
+          icon: const Icon(
+            Icons.delete_outline_rounded,
+            size: 15,
+            color: Color(0xFFB37A92),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  ExercisePlan _exerciseFor(TrainingEvent event) {
+    for (final day in controller.plan) {
+      for (final exercise in day.exercises) {
+        if (exercise.id == event.exerciseId) return exercise;
+      }
+    }
+    return ExercisePlan(
+      id: event.exerciseId,
+      name: event.exerciseName,
+      target: '',
+      sets: 1,
+      reps: event.reps,
+      kind: event.kind,
+      weight: event.weight,
+      note: event.note,
+    );
+  }
+
+  Future<void> _edit(BuildContext context, TrainingEvent event) async {
+    HapticFeedback.selectionClick();
+    final draft = await _showSetEditor(
+      context,
+      exercise: _exerciseFor(event),
+      event: event,
+    );
+    if (draft == null || !context.mounted) return;
+    await controller.updateEvent(
+      event.copyWith(
+        reps: draft.reps,
+        weight: draft.weight,
+        rpe: draft.rpe,
+        note: draft.note,
+      ),
+    );
+  }
+
+  Future<void> _delete(BuildContext context, TrainingEvent event) async {
+    HapticFeedback.selectionClick();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF111D34),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('移除这一组？'),
+        content: Text(
+          '${event.exerciseName} 的完成度会同步回退一组。',
+          style: const TextStyle(fontSize: 11, color: Color(0xFF91A2BA)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('保留'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF74435D),
+            ),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.deleteEvent(event);
+  }
 }
 
 class _EmptyHistory extends StatelessWidget {
@@ -2856,29 +3944,22 @@ class _BackupSettingsCard extends StatelessWidget {
           Expanded(
             child: ListTile(
               dense: true,
-              leading: const Icon(Icons.copy_all_rounded, size: 18),
-              title: const Text('复制备份', style: TextStyle(fontSize: 10)),
-              onTap: () async {
-                await Clipboard.setData(
-                  ClipboardData(text: controller.exportBackup()),
-                );
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('完整数据备份已复制')));
-              },
+              leading: const Icon(Icons.file_upload_outlined, size: 18),
+              title: const Text('导出备份', style: TextStyle(fontSize: 10)),
+              subtitle: const Text('长按复制 JSON', style: TextStyle(fontSize: 7)),
+              onTap: () => _exportFile(context),
+              onLongPress: () => _copyBackup(context),
             ),
           ),
           Container(width: 1, height: 30, color: const Color(0x263F5574)),
           Expanded(
             child: ListTile(
               dense: true,
-              leading: const Icon(
-                Icons.settings_backup_restore_rounded,
-                size: 18,
-              ),
-              title: const Text('恢复备份', style: TextStyle(fontSize: 10)),
-              onTap: () => _restore(context),
+              leading: const Icon(Icons.file_download_outlined, size: 18),
+              title: const Text('导入备份', style: TextStyle(fontSize: 10)),
+              subtitle: const Text('长按读取剪贴板', style: TextStyle(fontSize: 7)),
+              onTap: () => _restoreFile(context),
+              onLongPress: () => _restoreClipboard(context),
             ),
           ),
         ],
@@ -2886,38 +3967,187 @@ class _BackupSettingsCard extends StatelessWidget {
     ),
   );
 
-  Future<void> _restore(BuildContext context) async {
-    final field = TextEditingController();
-    final raw = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('恢复 Pulsar 数据'),
-        content: TextField(
-          controller: field,
-          minLines: 5,
-          maxLines: 9,
-          decoration: const InputDecoration(hintText: '粘贴此前复制的 JSON 备份'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(field.text),
-            child: const Text('恢复'),
-          ),
-        ],
-      ),
+  Future<void> _exportFile(BuildContext context) async {
+    try {
+      final now = DateTime.now();
+      final fileName =
+          'Pulsar-${now.year}${now.month.toString().padLeft(2, '0')}'
+          '${now.day.toString().padLeft(2, '0')}.json';
+      final path = await FilePicker.platform.saveFile(
+        dialogTitle: '导出 Pulsar 完整备份',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        bytes: Uint8List.fromList(utf8.encode(controller.exportBackup())),
+      );
+      if (path == null || !context.mounted) return;
+      _showPulsarNotice(
+        context,
+        icon: Icons.cloud_done_outlined,
+        title: '备份已安全导出',
+        detail: '计划、进度与历史均已写入文件',
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      _showPulsarNotice(
+        context,
+        icon: Icons.error_outline_rounded,
+        title: '无法导出备份',
+        detail: '请检查系统文件选择器后重试',
+        error: true,
+      );
+    }
+  }
+
+  Future<void> _copyBackup(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: controller.exportBackup()));
+    if (!context.mounted) return;
+    _showPulsarNotice(
+      context,
+      icon: Icons.copy_all_rounded,
+      title: '完整备份已复制',
+      detail: '可长按“导入备份”从剪贴板恢复',
     );
-    field.dispose();
-    if (raw == null || raw.trim().isEmpty) return;
+  }
+
+  Future<void> _restoreFile(BuildContext context) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: '选择 Pulsar JSON 备份',
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      final bytes = result?.files.single.bytes;
+      if (bytes == null || !context.mounted) return;
+      await _restoreRaw(context, utf8.decode(bytes));
+    } catch (_) {
+      if (!context.mounted) return;
+      _showPulsarNotice(
+        context,
+        icon: Icons.error_outline_rounded,
+        title: '无法读取备份文件',
+        detail: '请选择由 Pulsar 导出的 JSON 文件',
+        error: true,
+      );
+    }
+  }
+
+  Future<void> _restoreClipboard(BuildContext context) async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final raw = data?.text?.trim();
+    if (raw == null || raw.isEmpty) {
+      if (!context.mounted) return;
+      _showPulsarNotice(
+        context,
+        icon: Icons.content_paste_off_rounded,
+        title: '剪贴板中没有备份',
+        detail: '请先复制完整的 Pulsar JSON 数据',
+        error: true,
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    await _restoreRaw(context, raw);
+  }
+
+  Future<void> _restoreRaw(BuildContext context, String raw) async {
     final ok = await controller.importBackup(raw.trim());
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
+    _showPulsarNotice(
       context,
-    ).showSnackBar(SnackBar(content: Text(ok ? '计划与历史已恢复' : '备份内容无法识别')));
+      icon: ok ? Icons.auto_awesome_rounded : Icons.error_outline_rounded,
+      title: ok ? '计划与历史已恢复' : '备份内容无法识别',
+      detail: ok ? '训练星图已同步到备份时的状态' : '文件可能损坏或版本不兼容',
+      error: !ok,
+    );
   }
+}
+
+void _showPulsarNotice(
+  BuildContext context, {
+  required IconData icon,
+  required String title,
+  required String detail,
+  bool error = false,
+}) {
+  final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      behavior: SnackBarBehavior.floating,
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+      padding: EdgeInsets.zero,
+      duration: const Duration(seconds: 3),
+      content: Container(
+        padding: const EdgeInsets.fromLTRB(13, 11, 14, 11),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            colors: error
+                ? const [Color(0xF02B1728), Color(0xF01A162B)]
+                : const [Color(0xF0122941), Color(0xF00E1B35)],
+          ),
+          border: Border.all(
+            color: error ? const Color(0x709F5476) : const Color(0x7050D9E9),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: error ? const Color(0x303F142A) : const Color(0x3032D6E8),
+              blurRadius: 22,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: error
+                    ? const Color(0x335F2944)
+                    : const Color(0x3332BFD3),
+              ),
+              child: Icon(
+                icon,
+                size: 17,
+                color: error
+                    ? const Color(0xFFE6A4BD)
+                    : const Color(0xFF8EF1F7),
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    style: const TextStyle(
+                      fontSize: 8,
+                      color: Color(0xFF8FA2BD),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _ClearRecordsCard extends StatelessWidget {

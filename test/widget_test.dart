@@ -204,4 +204,61 @@ void main() {
     expect(galaxy.controller.count(galaxy.controller.plan.first, 0), 2);
     expect(galaxy.controller.events, hasLength(2));
   });
+
+  testWidgets('周次数据隔离且详细训练组可编辑删除', (tester) async {
+    await loadApp(tester);
+    final galaxy = tester.widget<GalaxyScreen>(find.byType(GalaxyScreen));
+    final controller = galaxy.controller;
+    final monday = controller.plan.first;
+
+    expect(
+      await controller.addDetailedSet(
+        monday,
+        0,
+        reps: '9 次',
+        weight: 32.5,
+        rpe: 8,
+        note: '动作稳定',
+      ),
+      isTrue,
+    );
+    expect(controller.count(monday, 0), 1);
+    expect(controller.events.first.weight, 32.5);
+    expect(controller.events.first.rpe, 8);
+
+    final original = controller.events.first;
+    await controller.updateEvent(
+      original.copyWith(weight: 35, rpe: 8.5, note: '下次维持'),
+    );
+    expect(controller.events.first.weight, 35);
+    expect(controller.events.first.note, '下次维持');
+
+    controller.shiftWeek(-1);
+    expect(controller.count(monday, 0), 0);
+    controller.shiftWeek(1);
+    expect(controller.count(monday, 0), 1);
+
+    await controller.deleteEvent(controller.events.first);
+    expect(controller.count(monday, 0), 0);
+    expect(controller.events, isEmpty);
+  });
+
+  testWidgets('脉冲矩阵标签切换不再挤压相邻日期', (tester) async {
+    await loadApp(tester);
+    await tester.tap(find.byIcon(Icons.view_agenda_rounded));
+    await tester.pump(const Duration(milliseconds: 320));
+
+    final monday = find.byKey(const ValueKey('matrix-day-0'));
+    final tuesday = find.byKey(const ValueKey('matrix-day-1'));
+    final mondayRect = tester.getRect(monday);
+    final tuesdayRect = tester.getRect(tuesday);
+    expect(mondayRect.width, closeTo(48, .1));
+    expect(tuesdayRect.width, closeTo(48, .1));
+
+    tester.widget<GestureDetector>(tuesday).onTap!();
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(tester.getRect(monday).left, closeTo(mondayRect.left, .1));
+    expect(tester.getRect(tuesday).left, closeTo(tuesdayRect.left, .1));
+    expect(tester.takeException(), isNull);
+  });
 }
