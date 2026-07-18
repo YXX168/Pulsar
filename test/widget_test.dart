@@ -48,6 +48,14 @@ void main() {
     expect(find.text('周一 · 上肢推力'), findsOneWidget);
     expect(find.text('上斜哑铃卧推'), findsWidgets);
     expect(tester.takeException(), isNull);
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey('exercise-meter-opacity')),
+          )
+          .opacity,
+      0,
+    );
 
     await tester.pump(const Duration(milliseconds: 600));
     final ropePress = find.byKey(const ValueKey('exercise-hit-mon-5'));
@@ -56,6 +64,24 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('exercise-hit-mon-0')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey('exercise-meter-opacity')),
+          )
+          .opacity,
+      1,
+    );
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(
+      tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey('exercise-meter-opacity')),
+          )
+          .opacity,
+      0,
+    );
 
     final dayScreen = tester.widget<DayGalaxyScreen>(
       find.byType(DayGalaxyScreen),
@@ -82,7 +108,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('每周训练计划'), findsOneWidget);
 
-    await tester.tap(find.text('周一 · 上肢推力'));
+    await tester.ensureVisible(find.text('周六 · 完全休息'));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('周六 · 完全休息'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('添加训练动作'), findsOneWidget);
 
@@ -90,11 +118,43 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(find.text('添加训练动作'));
     await tester.pump(const Duration(milliseconds: 250));
-    expect(find.text('7 个训练动作'), findsOneWidget);
+    expect(find.text('1 个训练动作'), findsOneWidget);
+    final settings = tester.widget<SettingsScreen>(find.byType(SettingsScreen));
+    expect(settings.controller.plan[5].rest, isFalse);
+    expect(settings.controller.plan[5].exercises, hasLength(1));
 
     await tester.tap(find.text('记录'));
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('训练记录'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('普通模式和星海模式共享完成状态', (tester) async {
+    await loadApp(tester);
+
+    await tester.tap(find.byIcon(Icons.view_agenda_rounded));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(NormalWorkoutScreen), findsOneWidget);
+
+    await tester.tap(find.text('周一'));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.tap(find.byKey(const ValueKey('normal-exercise-mon-0')));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final normal = tester.widget<NormalWorkoutScreen>(
+      find.byType(NormalWorkoutScreen),
+    );
+    expect(
+      normal.controller.count(normal.controller.plan.first, 0),
+      normal.controller.plan.first.exercises.first.sets,
+    );
+
+    await tester.tap(find.byIcon(Icons.auto_awesome_rounded));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(GalaxyScreen), findsOneWidget);
+    expect(
+      normal.controller.count(normal.controller.plan.first, 0),
+      normal.controller.plan.first.exercises.first.sets,
+    );
   });
 }

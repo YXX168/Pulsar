@@ -8,6 +8,7 @@ class PulsarStorage {
   static const _planKey = 'pulsar_plan_v2';
   static const _setsKey = 'pulsar_sets_v1';
   static const _eventsKey = 'pulsar_training_events_v1';
+  static const _modeKey = 'pulsar_display_mode_v1';
   Future<List<WorkoutDay>> loadPlan() async {
     final raw = (await SharedPreferences.getInstance()).getString(_planKey);
     if (raw == null) return defaultPlan();
@@ -71,4 +72,10 @@ class PulsarStorage {
         _eventsKey,
         jsonEncode(events.take(2500).map((event) => event.toJson()).toList()),
       );
+
+  Future<bool> loadGalaxyMode() async =>
+      (await SharedPreferences.getInstance()).getBool(_modeKey) ?? true;
+
+  Future<void> saveGalaxyMode(bool enabled) async =>
+      (await SharedPreferences.getInstance()).setBool(_modeKey, enabled);
 }

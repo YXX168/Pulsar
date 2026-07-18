@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -76,11 +77,13 @@ class PulsarController extends ChangeNotifier {
   List<WorkoutDay> plan = [];
   Map<String, Map<int, int>> completed = {};
   List<TrainingEvent> events = [];
+  bool galaxyMode = true;
 
   Future<void> initialize() async {
     plan = await storage.loadPlan();
     completed = await storage.loadSets();
     events = await storage.loadEvents();
+    galaxyMode = await storage.loadGalaxyMode();
     ready = true;
     notifyListeners();
   }
@@ -185,6 +188,13 @@ class PulsarController extends ChangeNotifier {
     await storage.savePlan(plan);
   }
 
+  Future<void> setGalaxyMode(bool enabled) async {
+    if (galaxyMode == enabled) return;
+    galaxyMode = enabled;
+    notifyListeners();
+    await storage.saveGalaxyMode(enabled);
+  }
+
   Future<void> clearRecords() async {
     completed = {};
     events = [];
@@ -209,7 +219,9 @@ class _PulsarShellState extends State<PulsarShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      GalaxyScreen(controller: widget.controller),
+      widget.controller.galaxyMode
+          ? GalaxyScreen(controller: widget.controller)
+          : NormalWorkoutScreen(controller: widget.controller),
       RecordsScreen(controller: widget.controller),
       SettingsScreen(controller: widget.controller),
     ];
@@ -235,7 +247,7 @@ class _PulsarShellState extends State<PulsarShell> {
           NavigationDestination(
             icon: Icon(Icons.blur_circular_outlined),
             selectedIcon: Icon(Icons.blur_circular_rounded),
-            label: '星系',
+            label: '训练',
           ),
           NavigationDestination(
             icon: Icon(Icons.insights_outlined),
@@ -529,6 +541,357 @@ class _Brand extends StatelessWidget {
   );
 }
 
+class NormalWorkoutScreen extends StatefulWidget {
+  const NormalWorkoutScreen({required this.controller, super.key});
+
+  final PulsarController controller;
+
+  @override
+  State<NormalWorkoutScreen> createState() => _NormalWorkoutScreenState();
+}
+
+class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
+  late int selectedDay;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedDay = DateTime.now().weekday - 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final day = widget.controller.plan[selectedDay];
+    return Column(
+      children: [
+        Stack(
+          children: [
+            const PulsarHeader(title: 'NORMAL MODE'),
+            Positioned(
+              right: 12,
+              top: 12,
+              child: IconButton(
+                tooltip: '切换至星海模式',
+                onPressed: () => widget.controller.setGalaxyMode(true),
+                icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+              ),
+            ),
+          ],
+        ),
+        _NormalDaySelector(
+          plan: widget.controller.plan,
+          selected: selectedDay,
+          onSelected: (value) {
+            HapticFeedback.selectionClick();
+            setState(() => selectedDay = value);
+          },
+        ),
+        const SizedBox(height: 10),
+        _NormalProgressCard(controller: widget.controller, day: day),
+        const SizedBox(height: 10),
+        Expanded(
+          child: day.exercises.isEmpty
+              ? _NormalRestCard(day: day)
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 28),
+                  itemCount: day.exercises.length,
+                  itemBuilder: (context, index) => _NormalExerciseCard(
+                    day: day,
+                    exercise: day.exercises[index],
+                    index: index,
+                    value: widget.controller.count(day, index),
+                    palette:
+                        PulsarPalette.values[(day.palette + index) %
+                            PulsarPalette.values.length],
+                    onTap: () => _toggle(day, index),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _toggle(WorkoutDay day, int index) async {
+    final exercise = day.exercises[index];
+    final current = widget.controller.count(day, index);
+    final completing = current < exercise.sets;
+    HapticFeedback.mediumImpact();
+    await widget.controller.setCount(
+      day,
+      index,
+      completing ? exercise.sets : 0,
+      recordSet: completing,
+    );
+    if (mounted) setState(() {});
+  }
+}
+
+class _NormalDaySelector extends StatelessWidget {
+  const _NormalDaySelector({
+    required this.plan,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<WorkoutDay> plan;
+  final int selected;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 48,
+    child: ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      scrollDirection: Axis.horizontal,
+      itemCount: plan.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 7),
+      itemBuilder: (context, index) {
+        final active = index == selected;
+        return GestureDetector(
+          onTap: () => onSelected(index),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: active ? 62 : 43,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: active
+                  ? const LinearGradient(
+                      colors: [Color(0xFF4667D8), Color(0xFF21B8CF)],
+                    )
+                  : null,
+              color: active ? null : const Color(0x80101A30),
+              border: Border.all(
+                color: active
+                    ? const Color(0x806FEAFF)
+                    : const Color(0x263F567B),
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              plan[index].day,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                color: active ? Colors.white : const Color(0xFF8798B3),
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _NormalProgressCard extends StatelessWidget {
+  const _NormalProgressCard({required this.controller, required this.day});
+
+  final PulsarController controller;
+  final WorkoutDay day;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = controller.progress(day);
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 13),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(
+          colors: [Color(0xB5142342), Color(0xA00F1B33)],
+        ),
+        border: Border.all(color: const Color(0x354B7EAA)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      day.title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      day.subtitle,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: Color(0xFF8EA2C1),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${controller.doneSets(day)} / ${controller.totalSets(day)} 组',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF85EDFF),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 5,
+              backgroundColor: const Color(0xFF17243E),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFF55DFF5)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NormalExerciseCard extends StatelessWidget {
+  const _NormalExerciseCard({
+    required this.day,
+    required this.exercise,
+    required this.index,
+    required this.value,
+    required this.palette,
+    required this.onTap,
+  });
+
+  final WorkoutDay day;
+  final ExercisePlan exercise;
+  final int index;
+  final int value;
+  final PulsarPalette palette;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = exercise.sets == 0 ? 0.0 : value / exercise.sets;
+    final done = value >= exercise.sets;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: done
+            ? palette.edge.withValues(alpha: .09)
+            : const Color(0xB20D172A),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          key: ValueKey('normal-exercise-${day.keyName}-$index'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: done ? palette.edge : const Color(0xFF15233D),
+                    border: Border.all(
+                      color: palette.edge.withValues(alpha: .6),
+                    ),
+                    boxShadow: done
+                        ? [
+                            BoxShadow(
+                              color: palette.edge.withValues(alpha: .45),
+                              blurRadius: 16,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Icon(
+                    done ? Icons.check_rounded : Icons.fitness_center_rounded,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        exercise.name,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: done ? const Color(0xFF8D9CB3) : Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      LinearProgressIndicator(
+                        value: progress.clamp(0.0, 1.0),
+                        minHeight: 2,
+                        backgroundColor: const Color(0xFF17243E),
+                        valueColor: AlwaysStoppedAnimation(palette.core),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${exercise.sets} 组',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: palette.core,
+                      ),
+                    ),
+                    Text(
+                      exercise.reps,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: Color(0xFF8597B3),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NormalRestCard extends StatelessWidget {
+  const _NormalRestCard({required this.day});
+  final WorkoutDay day;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.nightlight_round, size: 42, color: Color(0xFFB7C9E8)),
+        const SizedBox(height: 12),
+        Text(
+          day.title,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 5),
+        const Text(
+          '今日恢复，也可在设置中添加训练',
+          style: TextStyle(fontSize: 10, color: Color(0xFF879AB8)),
+        ),
+      ],
+    ),
+  );
+}
+
 class GalaxyScreen extends StatefulWidget {
   const GalaxyScreen({required this.controller, super.key});
 
@@ -563,7 +926,20 @@ class _GalaxyScreenState extends State<GalaxyScreen>
     children: [
       expanded
           ? PulsarHeader(title: 'WEEKLY GALAXY', onBack: _collapseGalaxy)
-          : const PulsarHeader(),
+          : Stack(
+              children: [
+                const PulsarHeader(),
+                Positioned(
+                  right: 12,
+                  top: 12,
+                  child: IconButton(
+                    tooltip: '切换至普通模式',
+                    onPressed: () => widget.controller.setGalaxyMode(false),
+                    icon: const Icon(Icons.view_agenda_rounded, size: 20),
+                  ),
+                ),
+              ],
+            ),
       Expanded(
         child: LayoutBuilder(
           builder: (context, box) {
@@ -612,7 +988,9 @@ class _GalaxyScreenState extends State<GalaxyScreen>
     return AnimatedBuilder(
       animation: _fissionController,
       builder: (context, child) {
-        final t = Curves.easeInCubic.transform(_fissionController.value);
+        final t = Curves.easeOutCubic.transform(
+          (_fissionController.value / .30).clamp(0.0, 1.0),
+        );
         return Positioned.fill(
           child: IgnorePointer(
             ignoring: expanded,
@@ -674,6 +1052,16 @@ class _GalaxyScreenState extends State<GalaxyScreen>
     await _fissionController.reverse();
     if (mounted) setState(() => expanded = false);
   }
+
+  IconData _dayGlyph(int index) => const [
+    Icons.fitness_center_rounded,
+    Icons.directions_run_rounded,
+    Icons.sports_gymnastics_rounded,
+    Icons.air_rounded,
+    Icons.bolt_rounded,
+    Icons.nightlight_round,
+    Icons.spa_rounded,
+  ][index % 7];
 
   List<Widget> _nodes(BuildContext context, Size size) {
     const alignments = [
@@ -747,12 +1135,14 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                             !day.rest && widget.controller.progress(day) >= 1,
                         hero: isToday,
                       ),
-                      if (day.rest)
-                        Icon(
-                          Icons.nightlight_round,
-                          size: orbSize * .15,
-                          color: const Color(0xFFE2ECFF),
-                        ),
+                      Icon(
+                        _dayGlyph(index),
+                        size: orbSize * .145,
+                        color: const Color(0xFFF1F8FF),
+                        shadows: const [
+                          Shadow(color: Color(0xFFB8EAFF), blurRadius: 10),
+                        ],
+                      ),
                     ],
                   ),
                   Text(
@@ -783,8 +1173,8 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   void _openDay(BuildContext context, WorkoutDay day, Alignment origin) {
     Navigator.of(context).push(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 160),
-        reverseTransitionDuration: const Duration(milliseconds: 120),
+        transitionDuration: const Duration(milliseconds: 70),
+        reverseTransitionDuration: const Duration(milliseconds: 70),
         pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
           opacity: animation,
           child: DayGalaxyScreen(
@@ -851,6 +1241,8 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   late final AnimationController _breakController;
   late final AnimationController _pulseController;
   int activeExercise = 0;
+  bool showExerciseMeter = false;
+  Timer? _meterTimer;
   bool _allowPop = false;
   bool _closing = false;
 
@@ -871,6 +1263,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   void dispose() {
     _breakController.dispose();
     _pulseController.dispose();
+    _meterTimer?.cancel();
     super.dispose();
   }
 
@@ -893,14 +1286,6 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                   progress: widget.controller.progress(day),
                   onBack: _closeDay,
                 ),
-                if (!day.rest)
-                  _ExerciseEnergyMeter(
-                    exercise: day.exercises[activeExercise],
-                    value: widget.controller.count(day, activeExercise),
-                    palette:
-                        PulsarPalette.values[(day.palette + activeExercise) %
-                            PulsarPalette.values.length],
-                  ),
                 Expanded(
                   child: day.rest
                       ? _RestRecoveryScene(
@@ -931,6 +1316,40 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                                 ),
                               ),
                               ..._exerciseNodes(box.biggest),
+                              Positioned(
+                                top: 6,
+                                left: 0,
+                                right: 0,
+                                child: IgnorePointer(
+                                  child: AnimatedSlide(
+                                    offset: showExerciseMeter
+                                        ? Offset.zero
+                                        : const Offset(0, -.28),
+                                    duration: const Duration(milliseconds: 220),
+                                    curve: Curves.easeOutCubic,
+                                    child: AnimatedOpacity(
+                                      key: const ValueKey(
+                                        'exercise-meter-opacity',
+                                      ),
+                                      opacity: showExerciseMeter ? 1 : 0,
+                                      duration: const Duration(
+                                        milliseconds: 180,
+                                      ),
+                                      child: _ExerciseEnergyMeter(
+                                        exercise: day.exercises[activeExercise],
+                                        value: widget.controller.count(
+                                          day,
+                                          activeExercise,
+                                        ),
+                                        palette:
+                                            PulsarPalette.values[(day.palette +
+                                                    activeExercise) %
+                                                PulsarPalette.values.length],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -953,17 +1372,17 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
       Alignment(.55, .39),
       Alignment(0, .66),
     ];
-    const sizes = [130.0, 114.0, 122.0, 110.0, 118.0, 108.0];
+    const sizes = [146.0, 130.0, 138.0, 126.0, 134.0, 124.0];
     return day.exercises.asMap().entries.map((entry) {
       final index = entry.key;
       final exercise = entry.value;
       final alignment = alignments[index % alignments.length];
       final orbSize = sizes[index % sizes.length];
-      final left = (alignment.x + 1) / 2 * size.width - 66;
+      final left = (alignment.x + 1) / 2 * size.width - 75;
       final rawTop = (alignment.y + 1) / 2 * size.height - orbSize / 2;
       final top = rawTop.clamp(2.0, size.height - orbSize - 40.0);
       final launch = widget.launchOrigin.alongSize(size);
-      final target = Offset(left + 66, top + orbSize / 2);
+      final target = Offset(left + 75, top + orbSize / 2);
       final begin = (index * .055).clamp(0.0, .28);
       final movement = CurvedAnimation(
         parent: _breakController,
@@ -985,7 +1404,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
             behavior: HitTestBehavior.opaque,
             onTap: () => _tapExercise(index, exercise),
             child: SizedBox(
-              width: 132,
+              width: 150,
               child: Column(
                 children: [
                   Stack(
@@ -1061,7 +1480,16 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   }
 
   Future<void> _tapExercise(int index, ExercisePlan exercise) async {
-    if (mounted) setState(() => activeExercise = index);
+    _meterTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        activeExercise = index;
+        showExerciseMeter = true;
+      });
+    }
+    _meterTimer = Timer(const Duration(seconds: 1), () {
+      if (mounted) setState(() => showExerciseMeter = false);
+    });
     _pulseController.forward(from: 0);
     final current = widget.controller.count(widget.day, index);
     if (current >= exercise.sets) {
@@ -1827,6 +2255,81 @@ class _EmptyHistory extends StatelessWidget {
   );
 }
 
+class _ModeSettingsCard extends StatelessWidget {
+  const _ModeSettingsCard({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(6),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(20),
+      color: const Color(0xB20F192D),
+      border: Border.all(color: const Color(0x30456A96)),
+    ),
+    child: Row(
+      children: [
+        _option(
+          icon: Icons.view_agenda_rounded,
+          label: '普通模式',
+          selected: !controller.galaxyMode,
+          onTap: () => controller.setGalaxyMode(false),
+        ),
+        _option(
+          icon: Icons.auto_awesome_rounded,
+          label: '星海模式',
+          selected: controller.galaxyMode,
+          onTap: () => controller.setGalaxyMode(true),
+        ),
+      ],
+    ),
+  );
+
+  Widget _option({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) => Expanded(
+    child: GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        height: 50,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          gradient: selected
+              ? const LinearGradient(
+                  colors: [Color(0x9E4967E6), Color(0x8031C4D5)],
+                )
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 17,
+              color: selected ? Colors.white : const Color(0xFF7588A7),
+            ),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : const Color(0xFF7588A7),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
 
@@ -1845,6 +2348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 28),
           children: [
+            _ModeSettingsCard(controller: widget.controller),
             ...widget.controller.plan.map(_dayTile),
             const SizedBox(height: 14),
             ListTile(
@@ -1899,26 +2403,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ...day.exercises.asMap().entries.map(
           (entry) => _exerciseEditor(day, entry.key, entry.value),
         ),
-        if (!day.rest)
-          ListTile(
-            dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 22),
-            onTap: () {
-              setState(
-                () => day.exercises.add(
-                  ExercisePlan(
-                    name: '新训练动作',
-                    target: '目标肌群',
-                    sets: 3,
-                    reps: '12 次',
-                  ),
+        ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 22),
+          onTap: () {
+            setState(() {
+              day.rest = false;
+              day.exercises.add(
+                ExercisePlan(
+                  name: '新训练动作',
+                  target: '目标肌群',
+                  sets: 3,
+                  reps: '12 次',
                 ),
               );
-              widget.controller.updatePlan();
-            },
-            leading: const Icon(Icons.add_circle_outline_rounded, size: 17),
-            title: const Text('添加训练动作', style: TextStyle(fontSize: 10)),
-          ),
+            });
+            widget.controller.updatePlan();
+          },
+          leading: const Icon(Icons.add_circle_outline_rounded, size: 17),
+          title: const Text('添加训练动作', style: TextStyle(fontSize: 10)),
+        ),
         const SizedBox(height: 8),
       ],
     ),
