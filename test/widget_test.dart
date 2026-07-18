@@ -18,13 +18,13 @@ void main() {
     expect(find.byKey(const ValueKey('weekly-core-hit')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('weekly-core-hit')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 820));
+    await tester.pump(const Duration(milliseconds: 980));
     expect(find.text('星环模式'), findsOneWidget);
     expect(find.byKey(const ValueKey('day-hit-mon')), findsOneWidget);
 
     final firstBack = tester.binding.handlePopRoute();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 360));
+    await tester.pump(const Duration(milliseconds: 480));
     await firstBack;
     await tester.pump();
     expect(find.byKey(const ValueKey('weekly-core-hit')), findsOneWidget);
@@ -34,10 +34,10 @@ void main() {
       find.byKey(const ValueKey('weekly-core-hit')).hitTestable(),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 820));
+    await tester.pump(const Duration(milliseconds: 980));
     await tester.tap(find.byKey(const ValueKey('day-hit-mon')).hitTestable());
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 760));
+    await tester.pump(const Duration(milliseconds: 900));
 
     expect(find.byType(DayGalaxyScreen), findsOneWidget);
     expect(find.text('周一 · 上肢推力'), findsOneWidget);
@@ -62,9 +62,13 @@ void main() {
       greaterThan(220),
     );
     expect(find.byKey(const ValueKey('rest-timer')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('rest-timer'))).dy,
+      lessThan(260),
+    );
 
     await tester.pump(const Duration(milliseconds: 1100));
-    await tester.pump(const Duration(milliseconds: 260));
+    await tester.pump(const Duration(milliseconds: 400));
     expect(
       tester.getSize(find.byKey(const ValueKey('header-energy-meter'))).width,
       closeTo(82, 1),
@@ -78,15 +82,15 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 380));
+    await tester.pump(const Duration(milliseconds: 440));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 140));
     expect(find.byType(DayGalaxyScreen), findsNothing);
     expect(find.byKey(const ValueKey('day-hit-mon')), findsOneWidget);
 
     final secondBack = tester.binding.handlePopRoute();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 360));
+    await tester.pump(const Duration(milliseconds: 480));
     await secondBack;
     await tester.pump();
     expect(find.byKey(const ValueKey('weekly-core-hit')), findsOneWidget);
@@ -120,19 +124,19 @@ void main() {
     expect(find.byKey(const ValueKey('weekly-core-hit')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('weekly-core-hit')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 820));
+    await tester.pump(const Duration(milliseconds: 980));
     await tester.tap(find.byKey(const ValueKey('day-hit-sat')).hitTestable());
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 760));
+    await tester.pump(const Duration(milliseconds: 900));
     expect(find.byKey(const ValueKey('exercise-hit-sat-0')), findsOneWidget);
     expect(find.text('AI 项目推进'), findsWidgets);
 
     final dayBack = tester.binding.handlePopRoute();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 380));
+    await tester.pump(const Duration(milliseconds: 440));
     await dayBack;
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 140));
     expect(find.byType(DayGalaxyScreen), findsNothing);
     expect(tester.takeException(), isNull);
   });

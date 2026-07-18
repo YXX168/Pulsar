@@ -328,40 +328,23 @@ class PulsarShell extends StatefulWidget {
 
 class _PulsarShellState extends State<PulsarShell> {
   int index = 0;
-  bool galaxyExpanded = false;
-  final _galaxyKey = GlobalKey<_GalaxyScreenState>();
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       widget.controller.galaxyMode
-          ? GalaxyScreen(
-              key: _galaxyKey,
-              controller: widget.controller,
-              onExpandedChanged: (value) {
-                if (galaxyExpanded != value && mounted) {
-                  setState(() => galaxyExpanded = value);
-                }
-              },
-            )
+          ? GalaxyScreen(controller: widget.controller)
           : NormalWorkoutScreen(controller: widget.controller),
       RecordsScreen(controller: widget.controller),
       SettingsScreen(controller: widget.controller),
     ];
-    // WillPopScope is intentionally used here because this shell owns the
-    // in-page constellation state and must consume Android's hardware back.
-    // ignore: deprecated_member_use
-    return WillPopScope(
-      onWillPop: () async {
-        if (index != 0) {
+    return PopScope<Object?>(
+      canPop: index == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && index != 0) {
           HapticFeedback.selectionClick();
           setState(() => index = 0);
-          return false;
-        } else if (galaxyExpanded) {
-          await _galaxyKey.currentState?._collapseGalaxy();
-          return false;
         }
-        return true;
       },
       child: Scaffold(
         extendBody: true,
@@ -623,92 +606,123 @@ class PulsarHeader extends StatelessWidget {
           if (progress != null)
             Positioned(
               right: 18,
-              top: energyExpanded ? 11 : 20,
-              child: AnimatedContainer(
-                key: const ValueKey('header-energy-meter'),
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOutCubic,
-                width: energyExpanded ? expandedWidth : 82,
-                height: energyExpanded ? 56 : 38,
-                padding: EdgeInsets.symmetric(
-                  horizontal: energyExpanded ? 14 : 0,
-                  vertical: energyExpanded ? 9 : 2,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(energyExpanded ? 18 : 8),
-                  color: energyExpanded
-                      ? const Color(0xF20B1730)
-                      : Colors.transparent,
-                  border: energyExpanded
-                      ? Border.all(color: const Color(0x6659DFF4))
-                      : null,
-                  boxShadow: energyExpanded
-                      ? const [
-                          BoxShadow(color: Color(0x4429CFE8), blurRadius: 22),
-                        ]
-                      : null,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (energyExpanded)
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.bolt_rounded,
-                            size: 13,
-                            color: Color(0xFF79E9F7),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              energyLabel ?? '能量同步',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            '${energyValue ?? 0} / ${energyTotal ?? 0}',
-                            style: const TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF87EDFA),
-                            ),
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(end: energyExpanded ? 1 : 0),
+                  duration: Duration(milliseconds: energyExpanded ? 300 : 360),
+                  curve: Curves.easeInOutCubic,
+                  builder: (context, t, child) {
+                    final itemProgress = (energyTotal ?? 0) > 0
+                        ? ((energyValue ?? 0) / energyTotal!).clamp(0.0, 1.0)
+                        : progress!;
+                    return Container(
+                      key: const ValueKey('header-energy-meter'),
+                      width: 82 + (expandedWidth - 82) * t,
+                      height: 38 + 18 * t,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 14 * t,
+                        vertical: 2 + 7 * t,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8 + 10 * t),
+                        color: Color.lerp(
+                          Colors.transparent,
+                          const Color(0xF20B1730),
+                          t,
+                        ),
+                        border: Border.all(
+                          color: const Color(
+                            0xFF59DFF4,
+                          ).withValues(alpha: .40 * t),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF29CFE8,
+                            ).withValues(alpha: .26 * t),
+                            blurRadius: 22 * t,
                           ),
                         ],
-                      )
-                    else
-                      Text(
-                        '${(progress! * 100).round()}%',
-                        style: const TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFB8C3D8),
+                      ),
+                      child: ClipRect(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            SizedBox(
+                              height: 17,
+                              child: Stack(
+                                alignment: Alignment.centerRight,
+                                children: [
+                                  Opacity(
+                                    opacity: 1 - t,
+                                    child: Text(
+                                      '${(progress! * 100).round()}%',
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFFB8C3D8),
+                                      ),
+                                    ),
+                                  ),
+                                  Opacity(
+                                    opacity: t,
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.bolt_rounded,
+                                          size: 13,
+                                          color: Color(0xFF79E9F7),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            energyLabel ?? '能量同步',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                        Text(
+                                          '${energyValue ?? 0} / ${energyTotal ?? 0}',
+                                          style: const TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w800,
+                                            color: Color(0xFF87EDFA),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: 4 + 3 * t),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(9),
+                              child: SizedBox(
+                                height: 2 + 2 * t,
+                                child: LinearProgressIndicator(
+                                  value:
+                                      progress! +
+                                      (itemProgress - progress!) * t,
+                                  backgroundColor: const Color(0xFF182642),
+                                  valueColor: const AlwaysStoppedAnimation(
+                                    Color(0xFF54E8F5),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    SizedBox(height: energyExpanded ? 7 : 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(9),
-                      child: LinearProgressIndicator(
-                        value: energyExpanded && (energyTotal ?? 0) > 0
-                            ? ((energyValue ?? 0) / energyTotal!).clamp(
-                                0.0,
-                                1.0,
-                              )
-                            : progress,
-                        minHeight: energyExpanded ? 4 : 2,
-                        backgroundColor: const Color(0xFF182642),
-                        valueColor: const AlwaysStoppedAnimation(
-                          Color(0xFF54E8F5),
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -1165,14 +1179,9 @@ class _NormalRestCard extends StatelessWidget {
 }
 
 class GalaxyScreen extends StatefulWidget {
-  const GalaxyScreen({
-    required this.controller,
-    this.onExpandedChanged,
-    super.key,
-  });
+  const GalaxyScreen({required this.controller, super.key});
 
   final PulsarController controller;
-  final ValueChanged<bool>? onExpandedChanged;
 
   @override
   State<GalaxyScreen> createState() => _GalaxyScreenState();
@@ -1182,14 +1191,16 @@ class _GalaxyScreenState extends State<GalaxyScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _fissionController;
   bool expanded = false;
+  LocalHistoryEntry? _historyEntry;
+  Future<void>? _collapseFuture;
 
   @override
   void initState() {
     super.initState();
     _fissionController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 760),
-      reverseDuration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 900),
+      reverseDuration: const Duration(milliseconds: 430),
     );
   }
 
@@ -1297,7 +1308,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                           hero: true,
                           showValue: false,
                         ),
-                        const _PulsarCoreGlyph(size: 74),
+                        const _PulsarCoreGlyph(size: 94),
                         const Text(
                           'WEEKLY CORE',
                           style: TextStyle(
@@ -1322,23 +1333,46 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   void _expandGalaxy() {
     if (expanded) return;
     setState(() => expanded = true);
-    widget.onExpandedChanged?.call(true);
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      _historyEntry = LocalHistoryEntry(
+        onRemove: () {
+          _historyEntry = null;
+          _runCollapse();
+        },
+      );
+      route.addLocalHistoryEntry(_historyEntry!);
+    }
     _fissionController.forward(from: 0);
     HapticFeedback.heavyImpact();
   }
 
   Future<void> _collapseGalaxy() async {
     if (!expanded) return;
-    HapticFeedback.mediumImpact();
-    await _fissionController.animateBack(
-      0,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeInOutCubic,
-    );
-    if (mounted) {
-      setState(() => expanded = false);
-      widget.onExpandedChanged?.call(false);
+    final entry = _historyEntry;
+    if (entry != null) {
+      entry.remove();
+      final running = _collapseFuture;
+      if (running != null) await running;
+      return;
     }
+    await _runCollapse();
+  }
+
+  Future<void> _runCollapse() {
+    final running = _collapseFuture;
+    if (running != null) return running;
+    final future = () async {
+      HapticFeedback.mediumImpact();
+      await _fissionController.animateBack(
+        0,
+        duration: const Duration(milliseconds: 430),
+        curve: Curves.easeInOutCubic,
+      );
+      if (mounted) setState(() => expanded = false);
+    }();
+    _collapseFuture = future.whenComplete(() => _collapseFuture = null);
+    return _collapseFuture!;
   }
 
   IconData _dayGlyph(int index) => const [
@@ -1461,8 +1495,8 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   void _openDay(BuildContext context, WorkoutDay day, Alignment origin) {
     Navigator.of(context).push(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 70),
-        reverseTransitionDuration: const Duration(milliseconds: 70),
+        transitionDuration: const Duration(milliseconds: 110),
+        reverseTransitionDuration: const Duration(milliseconds: 110),
         pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
           opacity: animation,
           child: DayGalaxyScreen(
@@ -1516,7 +1550,23 @@ class _PulsarCoreGlyph extends StatelessWidget {
   Widget build(BuildContext context) => IgnorePointer(
     child: SizedBox.square(
       dimension: size,
-      child: CustomPaint(painter: const _PulsarCoreGlyphPainter()),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: CustomPaint(painter: const _PulsarCoreGlyphPainter()),
+          ),
+          const Icon(
+            Icons.hub_rounded,
+            size: 34,
+            color: Color(0xFFF4FEFF),
+            shadows: [
+              Shadow(color: Color(0xFF8CEEFF), blurRadius: 12),
+              Shadow(color: Color(0xFF755EFF), blurRadius: 24),
+            ],
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -1552,19 +1602,6 @@ class _PulsarCoreGlyphPainter extends CustomPainter {
           )!,
       );
     }
-    final diamond = Path()
-      ..moveTo(center.dx, center.dy - 8)
-      ..lineTo(center.dx + 7, center.dy)
-      ..lineTo(center.dx, center.dy + 8)
-      ..lineTo(center.dx - 7, center.dy)
-      ..close();
-    canvas.drawPath(
-      diamond,
-      Paint()
-        ..shader = const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFF74DFFF)],
-        ).createShader(Rect.fromCircle(center: center, radius: 10)),
-    );
   }
 
   @override
@@ -1597,6 +1634,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   Timer? _meterTimer;
   Timer? _restTimer;
   int restRemaining = 0;
+  int restTotal = 0;
   bool _allowPop = false;
   bool _closing = false;
 
@@ -1605,8 +1643,8 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     super.initState();
     _breakController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 720),
-      reverseDuration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 850),
+      reverseDuration: const Duration(milliseconds: 400),
     )..forward();
     _pulseController = AnimationController(
       vsync: this,
@@ -1660,11 +1698,11 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                             reverseCurve: Curves.easeInCubic,
                           ),
                           child: ScaleTransition(
-                            scale: Tween(begin: .18, end: 1.0).animate(
+                            scale: Tween(begin: .48, end: 1.0).animate(
                               CurvedAnimation(
                                 parent: _breakController,
-                                curve: Curves.easeOutBack,
-                                reverseCurve: Curves.easeInCubic,
+                                curve: Curves.easeOutCubic,
+                                reverseCurve: Curves.easeInOutCubic,
                               ),
                             ),
                             child: _RestRecoveryScene(
@@ -1699,14 +1737,12 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                               ..._exerciseNodes(box.biggest),
                               if (restRemaining > 0)
                                 Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 12,
-                                  child: Center(
-                                    child: _RestTimerChip(
-                                      seconds: restRemaining,
-                                      onClose: _stopRestTimer,
-                                    ),
+                                  left: 10,
+                                  top: 10,
+                                  child: _RestTimerRail(
+                                    seconds: restRemaining,
+                                    total: restTotal,
+                                    onClose: _stopRestTimer,
                                   ),
                                 ),
                             ],
@@ -1898,12 +1934,18 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   void _startRestTimer(int seconds) {
     _restTimer?.cancel();
     if (!mounted) return;
-    setState(() => restRemaining = seconds);
+    setState(() {
+      restRemaining = seconds;
+      restTotal = seconds;
+    });
     _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted || restRemaining <= 1) {
         timer.cancel();
         if (mounted) {
-          setState(() => restRemaining = 0);
+          setState(() {
+            restRemaining = 0;
+            restTotal = 0;
+          });
           HapticFeedback.mediumImpact();
         }
       } else {
@@ -1914,40 +1956,66 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
 
   void _stopRestTimer() {
     _restTimer?.cancel();
-    setState(() => restRemaining = 0);
+    setState(() {
+      restRemaining = 0;
+      restTotal = 0;
+    });
   }
 }
 
-class _RestTimerChip extends StatelessWidget {
-  const _RestTimerChip({required this.seconds, required this.onClose});
+class _RestTimerRail extends StatelessWidget {
+  const _RestTimerRail({
+    required this.seconds,
+    required this.total,
+    required this.onClose,
+  });
 
   final int seconds;
+  final int total;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) => Container(
     key: const ValueKey('rest-timer'),
-    padding: const EdgeInsets.fromLTRB(13, 8, 7, 8),
+    width: 44,
+    height: 128,
+    padding: const EdgeInsets.fromLTRB(7, 8, 7, 5),
     decoration: BoxDecoration(
-      color: const Color(0xEE101C34),
-      borderRadius: BorderRadius.circular(20),
+      color: const Color(0xD90D1930),
+      borderRadius: BorderRadius.circular(18),
       border: Border.all(color: const Color(0x5550D7EB)),
       boxShadow: const [BoxShadow(color: Color(0x332DCDE8), blurRadius: 18)],
     ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
+    child: Column(
       children: [
         const Icon(Icons.timer_outlined, size: 14, color: Color(0xFF73E6F3)),
-        const SizedBox(width: 7),
+        const SizedBox(height: 5),
         Text(
-          '组间恢复  ${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
-          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800),
+          '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
+          style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w900),
         ),
-        const SizedBox(width: 4),
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          onPressed: onClose,
-          icon: const Icon(Icons.close_rounded, size: 13),
+        const SizedBox(height: 7),
+        Expanded(
+          child: RotatedBox(
+            quarterTurns: 3,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: LinearProgressIndicator(
+                value: total <= 0 ? 0 : seconds / total,
+                backgroundColor: const Color(0xFF182642),
+                valueColor: const AlwaysStoppedAnimation(Color(0xFF58E4F2)),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onClose,
+          child: const Padding(
+            padding: EdgeInsets.all(4),
+            child: Icon(Icons.close_rounded, size: 11),
+          ),
         ),
       ],
     ),
@@ -2842,6 +2910,96 @@ class _BackupSettingsCard extends StatelessWidget {
   }
 }
 
+class _ClearRecordsCard extends StatelessWidget {
+  const _ClearRecordsCard({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    borderRadius: BorderRadius.circular(20),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => _confirm(context),
+      child: Ink(
+        padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            colors: [Color(0x8A111D35), Color(0x7217253D)],
+          ),
+          border: Border.all(color: const Color(0x293B5979)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0x332F8AA5),
+                border: Border.all(color: const Color(0x3F64D4E8)),
+              ),
+              child: const Icon(
+                Icons.auto_delete_outlined,
+                size: 17,
+                color: Color(0xFF88C9D7),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '重置能量轨迹',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    '保留计划，仅清除进度与历史',
+                    style: TextStyle(fontSize: 8, color: Color(0xFF7F91AC)),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 17,
+              color: Color(0xFF60738F),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _confirm(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('重置能量轨迹？'),
+        content: const Text('训练计划会保留，所有完成进度与历史记录将被清除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确认重置'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    HapticFeedback.mediumImpact();
+    await controller.clearRecords();
+  }
+}
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({required this.controller, super.key});
 
@@ -2866,22 +3024,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 10),
             _BackupSettingsCard(controller: widget.controller),
             const SizedBox(height: 10),
-            ListTile(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-                side: const BorderSide(color: Color(0x202C3B5E)),
-              ),
-              leading: const Icon(Icons.restart_alt_rounded),
-              title: const Text('清空训练记录', style: TextStyle(fontSize: 12)),
-              subtitle: const Text(
-                '保留训练计划，只清除完成次数',
-                style: TextStyle(fontSize: 9),
-              ),
-              onTap: () {
-                HapticFeedback.mediumImpact();
-                widget.controller.clearRecords();
-              },
-            ),
+            _ClearRecordsCard(controller: widget.controller),
           ],
         ),
       ),
