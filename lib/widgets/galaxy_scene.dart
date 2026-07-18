@@ -25,7 +25,7 @@ class GalaxyScenePainter extends CustomPainter {
       galaxyRect,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = .9
+        ..strokeWidth = 1.2
         ..shader = SweepGradient(
           transform: GradientRotation(theta * .08),
           colors: const [
@@ -48,7 +48,7 @@ class GalaxyScenePainter extends CustomPainter {
       false,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = .7
+        ..strokeWidth = .95
         ..color = const Color(0x3D57DDF4),
     );
     canvas.restore();
@@ -98,4 +98,67 @@ class GalaxyScenePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(GalaxyScenePainter oldDelegate) => false;
+}
+
+class FissionBurstPainter extends CustomPainter {
+  FissionBurstPainter({
+    required this.animation,
+    required this.origin,
+    this.color = const Color(0xFF8EEBFF),
+  }) : super(repaint: animation);
+
+  final Animation<double> animation;
+  final Alignment origin;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final raw = animation.value.clamp(0.0, 1.0);
+    if (raw <= 0 || raw >= 1) return;
+    final center = origin.alongSize(size);
+    final expansion = Curves.easeOutExpo.transform(raw);
+    final fade = (1 - raw).clamp(0.0, 1.0);
+    final maxRadius = math.sqrt(
+      size.width * size.width + size.height * size.height,
+    );
+
+    for (var ring = 0; ring < 3; ring++) {
+      final delayed = (expansion - ring * .075).clamp(0.0, 1.0);
+      if (delayed <= 0) continue;
+      canvas.drawCircle(
+        center,
+        maxRadius * delayed * (.38 + ring * .08),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.2 - ring * .75
+          ..color = color.withValues(alpha: fade * (.66 - ring * .15)),
+      );
+    }
+
+    for (var particle = 0; particle < 30; particle++) {
+      final angle = particle * math.pi * 2 / 30 + particle % 4 * .13;
+      final distance = maxRadius * expansion * (.18 + (particle % 7) * .031);
+      final point =
+          center + Offset(math.cos(angle), math.sin(angle)) * distance;
+      final tail =
+          point -
+          Offset(math.cos(angle), math.sin(angle)) * (8 + particle % 5 * 3);
+      canvas.drawLine(
+        tail,
+        point,
+        Paint()
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = particle % 5 == 0 ? 2.2 : 1.15
+          ..color = Color.lerp(
+            color,
+            Colors.white,
+            particle % 3 / 3,
+          )!.withValues(alpha: fade * .82),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(FissionBurstPainter oldDelegate) =>
+      origin != oldDelegate.origin || color != oldDelegate.color;
 }

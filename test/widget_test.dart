@@ -16,6 +16,10 @@ void main() {
     await loadApp(tester);
 
     expect(find.text('PULSAR'), findsOneWidget);
+    expect(find.byKey(const ValueKey('weekly-core-hit')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('weekly-core-hit')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1100));
     expect(find.text('周一'), findsOneWidget);
 
     final sunday = find.byKey(const ValueKey('day-hit-sun'));

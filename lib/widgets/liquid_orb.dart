@@ -47,7 +47,7 @@ class _PulsarMotionState extends State<PulsarMotion>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 16),
+      duration: const Duration(seconds: 11),
     )..repeat();
   }
 
@@ -413,7 +413,7 @@ class LightClusterPainter extends CustomPainter {
       bounds,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = .95
+        ..strokeWidth = 1.35
         ..shader = SweepGradient(
           transform: GradientRotation(motion * .12),
           colors: [
@@ -433,7 +433,7 @@ class LightClusterPainter extends CustomPainter {
         false,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = segment == 0 ? 1.35 : .72
+          ..strokeWidth = segment == 0 ? 1.9 : 1.05
           ..strokeCap = StrokeCap.round
           ..color = palette.core.withValues(alpha: alpha * (1 - segment * .2)),
       );
@@ -482,7 +482,7 @@ class LightClusterPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeCap = StrokeCap.round
-          ..strokeWidth = 1.45 - stream * .11
+          ..strokeWidth = 2.1 - stream * .14
           ..color = Color.lerp(
             palette.core,
             palette.accent,
@@ -498,7 +498,7 @@ class LightClusterPainter extends CustomPainter {
       false,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.05
+        ..strokeWidth = 1.65
         ..strokeCap = StrokeCap.round
         ..color = Colors.white.withValues(alpha: .76),
     );

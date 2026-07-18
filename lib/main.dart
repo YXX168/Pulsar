@@ -413,7 +413,7 @@ class PulsarHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 68,
+    height: 78,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18),
       child: Row(
@@ -484,45 +484,43 @@ class _Brand extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: const Color(0x665EDCFF)),
+      const LiquidOrb(
+        size: 52,
+        palette: PulsarPalette(
+          Color(0xFFE8FDFF),
+          Color(0xFF27D8F5),
+          Color(0xFF745EFF),
         ),
-        child: Center(
-          child: Container(
-            width: 11,
-            height: 11,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [Color(0xFF00E7FF), Color(0xFF7B3CFF)],
-              ),
-            ),
-          ),
-        ),
+        value: 0,
+        total: 1,
+        showValue: false,
+        hero: true,
       ),
-      const SizedBox(width: 12),
-      const Column(
+      const SizedBox(width: 7),
+      Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'PULSAR',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 2.1,
+          ShaderMask(
+            shaderCallback: (bounds) => const LinearGradient(
+              colors: [Color(0xFFFFFFFF), Color(0xFF8DEAFF), Color(0xFF9B83FF)],
+            ).createShader(bounds),
+            child: const Text(
+              'PULSAR',
+              style: TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 3.2,
+                color: Colors.white,
+              ),
             ),
           ),
-          Text(
-            '训练星系',
+          const Text(
+            'ENERGY MATRIX',
             style: TextStyle(
               fontSize: 7,
-              color: Color(0xFF7D8BA5),
-              letterSpacing: 1.5,
+              color: Color(0xFF8FA9C8),
+              letterSpacing: 1.35,
             ),
           ),
         ],
@@ -531,10 +529,34 @@ class _Brand extends StatelessWidget {
   );
 }
 
-class GalaxyScreen extends StatelessWidget {
+class GalaxyScreen extends StatefulWidget {
   const GalaxyScreen({required this.controller, super.key});
 
   final PulsarController controller;
+
+  @override
+  State<GalaxyScreen> createState() => _GalaxyScreenState();
+}
+
+class _GalaxyScreenState extends State<GalaxyScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _fissionController;
+  bool expanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fissionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 980),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fissionController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Column(
@@ -542,22 +564,107 @@ class GalaxyScreen extends StatelessWidget {
       const PulsarHeader(),
       Expanded(
         child: LayoutBuilder(
-          builder: (context, box) => Stack(
-            children: [
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: GalaxyScenePainter(
-                    animation: PulsarMotion.of(context),
+          builder: (context, box) {
+            final size = box.biggest;
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: GalaxyScenePainter(
+                      animation: PulsarMotion.of(context),
+                    ),
                   ),
                 ),
-              ),
-              ..._nodes(context, box.biggest),
-            ],
-          ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: FissionBurstPainter(
+                        animation: _fissionController,
+                        origin: Alignment.center,
+                      ),
+                    ),
+                  ),
+                ),
+                _weeklyCore(context, size),
+                if (expanded) ..._nodes(context, size),
+              ],
+            );
+          },
         ),
       ),
     ],
   );
+
+  Widget _weeklyCore(BuildContext context, Size size) {
+    final activeDays = widget.controller.plan.where((day) => !day.rest);
+    final total = activeDays.fold<int>(
+      0,
+      (sum, day) => sum + widget.controller.totalSets(day),
+    );
+    final done = activeDays.fold<int>(
+      0,
+      (sum, day) => sum + widget.controller.doneSets(day),
+    );
+    final progress = total == 0 ? 0.0 : done / total;
+    final orbSize = math.min(size.width * .72, 278.0);
+    return AnimatedBuilder(
+      animation: _fissionController,
+      builder: (context, child) {
+        final t = Curves.easeInCubic.transform(_fissionController.value);
+        return Positioned.fill(
+          child: IgnorePointer(
+            ignoring: expanded,
+            child: Opacity(
+              opacity: (1 - t).clamp(0.0, 1.0),
+              child: Transform.scale(
+                scale: 1 - t * .68,
+                child: Center(
+                  child: GestureDetector(
+                    key: const ValueKey('weekly-core-hit'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _expandGalaxy,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        LiquidOrb(
+                          size: orbSize,
+                          palette: const PulsarPalette(
+                            Color(0xFFE8FDFF),
+                            Color(0xFF30CFF4),
+                            Color(0xFF755DFF),
+                          ),
+                          value: (progress * 100).round(),
+                          total: 100,
+                          complete: progress >= 1,
+                          hero: true,
+                        ),
+                        const Text(
+                          'WEEKLY CORE',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2.8,
+                            color: Color(0xFFC7EDFA),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _expandGalaxy() {
+    if (expanded) return;
+    setState(() => expanded = true);
+    _fissionController.forward(from: 0);
+    HapticFeedback.heavyImpact();
+  }
 
   List<Widget> _nodes(BuildContext context, Size size) {
     const alignments = [
@@ -569,9 +676,10 @@ class GalaxyScreen extends StatelessWidget {
       Alignment(.52, .38),
       Alignment(0, .62),
     ];
-    const sizes = [138.0, 124.0, 126.0, 148.0, 134.0, 120.0, 130.0];
+    const sizes = [154.0, 140.0, 142.0, 164.0, 150.0, 138.0, 146.0];
     final todayIndex = DateTime.now().weekday - 1;
-    return controller.plan.asMap().entries.map((entry) {
+    final launch = Alignment.center.alongSize(size);
+    return widget.controller.plan.asMap().entries.map((entry) {
       final index = entry.key;
       final day = entry.value;
       final alignment = alignments[index];
@@ -580,44 +688,70 @@ class GalaxyScreen extends StatelessWidget {
       final left = (alignment.x + 1) / 2 * size.width - orbSize / 2;
       final rawTop = (alignment.y + 1) / 2 * size.height - orbSize / 2;
       final top = rawTop.clamp(4.0, size.height - orbSize - 46.0);
+      final target = Offset(left + orbSize / 2, top + orbSize / 2);
+      final begin = (index * .035).clamp(0.0, .22);
+      final fission = CurvedAnimation(
+        parent: _fissionController,
+        curve: Interval(
+          begin,
+          (begin + .72).clamp(0.0, 1.0),
+          curve: Curves.easeOutExpo,
+        ),
+      );
       return Positioned(
         left: left,
         top: top,
-        child: _DriftingGalaxyNode(
-          animation: PulsarMotion.of(context),
-          phase: index * .91,
-          amplitude: isToday ? 9 : 6 + (index % 3) * 1.4,
-          child: GestureDetector(
-            key: ValueKey('day-hit-${day.keyName}'),
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _openDay(context, day, alignment),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LiquidOrb(
-                  key: ValueKey('day-${day.keyName}'),
-                  size: orbSize,
-                  palette: PulsarPalette.values[day.palette],
-                  value: (controller.progress(day) * 100).round(),
-                  total: 100,
-                  showValue: !day.rest,
-                  complete: !day.rest && controller.progress(day) >= 1,
-                  hero: isToday,
-                ),
-                Text(
-                  isToday ? '${day.day} · 今天' : day.day,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .8,
+        child: AnimatedBuilder(
+          animation: fission,
+          builder: (context, child) {
+            final t = fission.value;
+            return Opacity(
+              opacity: t.clamp(0.0, 1.0),
+              child: Transform.translate(
+                offset: (launch - target) * (1 - t),
+                child: Transform.scale(scale: .08 + t * .92, child: child),
+              ),
+            );
+          },
+          child: _DriftingGalaxyNode(
+            animation: PulsarMotion.of(context),
+            phase: index * .91,
+            amplitude: isToday ? 9 : 6 + (index % 3) * 1.4,
+            child: GestureDetector(
+              key: ValueKey('day-hit-${day.keyName}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _openDay(context, day, alignment),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LiquidOrb(
+                    key: ValueKey('day-${day.keyName}'),
+                    size: orbSize,
+                    palette: PulsarPalette.values[day.palette],
+                    value: (widget.controller.progress(day) * 100).round(),
+                    total: 100,
+                    showValue: !day.rest,
+                    complete: !day.rest && widget.controller.progress(day) >= 1,
+                    hero: isToday,
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  day.title,
-                  style: const TextStyle(fontSize: 8, color: Color(0xFFA6B9D7)),
-                ),
-              ],
+                  Text(
+                    isToday ? '${day.day} · 今天' : day.day,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .8,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    day.title,
+                    style: const TextStyle(
+                      fontSize: 8,
+                      color: Color(0xFFA6B9D7),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -632,15 +766,10 @@ class GalaxyScreen extends StatelessWidget {
         reverseTransitionDuration: const Duration(milliseconds: 300),
         pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
           opacity: animation,
-          child: ScaleTransition(
-            scale: Tween(begin: .94, end: 1.0).animate(
-              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-            ),
-            child: DayGalaxyScreen(
-              controller: controller,
-              day: day,
-              launchOrigin: origin,
-            ),
+          child: DayGalaxyScreen(
+            controller: widget.controller,
+            day: day,
+            launchOrigin: origin,
           ),
         ),
       ),
@@ -769,6 +898,18 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                                 ),
                               ),
                             ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: CustomPaint(
+                                  painter: FissionBurstPainter(
+                                    animation: _breakController,
+                                    origin: widget.launchOrigin,
+                                    color:
+                                        PulsarPalette.values[day.palette].core,
+                                  ),
+                                ),
+                              ),
+                            ),
                             ..._exerciseNodes(box.biggest),
                           ],
                         ),
@@ -791,7 +932,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
       Alignment(.55, .39),
       Alignment(0, .66),
     ];
-    const sizes = [112.0, 96.0, 102.0, 92.0, 98.0, 90.0];
+    const sizes = [130.0, 114.0, 122.0, 110.0, 118.0, 108.0];
     return day.exercises.asMap().entries.map((entry) {
       final index = entry.key;
       final exercise = entry.value;
@@ -808,7 +949,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
         curve: Interval(
           begin,
           (begin + .74).clamp(0.0, 1.0),
-          curve: Curves.easeOutQuint,
+          curve: Curves.easeOutExpo,
         ),
       );
       final count = widget.controller.count(day, index);
@@ -865,7 +1006,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
             final offset = (launch - target) * (1 - t);
             return Transform.translate(
               offset: offset,
-              child: Transform.scale(scale: .16 + t * .84, child: child),
+              child: Transform.scale(scale: .04 + t * .96, child: child),
             );
           },
         ),
