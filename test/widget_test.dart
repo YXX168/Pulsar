@@ -250,15 +250,31 @@ void main() {
 
     final monday = find.byKey(const ValueKey('matrix-day-0'));
     final tuesday = find.byKey(const ValueKey('matrix-day-1'));
+    final sunday = find.byKey(const ValueKey('matrix-day-6'));
     final mondayRect = tester.getRect(monday);
     final tuesdayRect = tester.getRect(tuesday);
-    expect(mondayRect.width, closeTo(48, .1));
-    expect(tuesdayRect.width, closeTo(48, .1));
+    final sundayRect = tester.getRect(sunday);
+    expect(mondayRect.width, closeTo(tuesdayRect.width, .01));
+    expect(tuesdayRect.width, closeTo(sundayRect.width, .01));
+    expect(sundayRect.right, lessThanOrEqualTo(381));
 
     tester.widget<GestureDetector>(tuesday).onTap!();
     await tester.pump(const Duration(milliseconds: 320));
     expect(tester.getRect(monday).left, closeTo(mondayRect.left, .1));
     expect(tester.getRect(tuesday).left, closeTo(tuesdayRect.left, .1));
+    expect(tester.getRect(sunday).right, closeTo(sundayRect.right, .1));
+
+    final matrix = tester.widget<NormalWorkoutScreen>(
+      find.byType(NormalWorkoutScreen),
+    );
+    final weekLabel = find.byKey(const ValueKey('week-label'));
+    final currentWeekSize = tester.getSize(weekLabel);
+    matrix.controller.shiftWeek(-1);
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(tester.getSize(weekLabel), currentWeekSize);
+    tester.widget<GestureDetector>(weekLabel).onTap!();
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(tester.getSize(weekLabel), currentWeekSize);
     expect(tester.takeException(), isNull);
   });
 }

@@ -930,47 +930,75 @@ class _WeekNavigator extends StatelessWidget {
           onTap: () => controller.shiftWeek(-1),
         ),
         const SizedBox(width: 8),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(
-              scale: Tween(begin: .96, end: 1.0).animate(animation),
-              child: child,
-            ),
-          ),
-          child: GestureDetector(
-            key: ValueKey(controller.weekLabel),
-            onTap: controller.isCurrentWeek
-                ? null
-                : controller.returnToCurrentWeek,
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 146),
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(15),
-                color: const Color(0x75121E35),
-                border: Border.all(color: const Color(0x30456E93)),
+        GestureDetector(
+          key: const ValueKey('week-label'),
+          onTap: controller.isCurrentWeek
+              ? null
+              : controller.returnToCurrentWeek,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            width: 154,
+            height: 40,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(15),
+              gradient: LinearGradient(
+                colors: controller.isCurrentWeek
+                    ? const [Color(0x9A121E35), Color(0x7A10192D)]
+                    : const [Color(0xB52B3D72), Color(0xA216586F)],
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    controller.weekLabel,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFFC8EEFA),
+              border: Border.all(
+                color: controller.isCurrentWeek
+                    ? const Color(0x30456E93)
+                    : const Color(0x665CDDEA),
+              ),
+              boxShadow: controller.isCurrentWeek
+                  ? null
+                  : const [BoxShadow(color: Color(0x2450DDEB), blurRadius: 18)],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                AnimatedAlign(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  alignment: controller.isCurrentWeek
+                      ? Alignment.center
+                      : const Alignment(0, -.30),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(
+                        scale: Tween(begin: .97, end: 1.0).animate(animation),
+                        child: child,
+                      ),
+                    ),
+                    child: Text(
+                      controller.weekLabel,
+                      key: ValueKey(controller.weekLabel),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFC8EEFA),
+                      ),
                     ),
                   ),
-                  if (!controller.isCurrentWeek)
-                    const Text(
+                ),
+                Positioned(
+                  bottom: 4,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    opacity: controller.isCurrentWeek ? 0 : 1,
+                    child: const Text(
                       '轻触回到本周',
-                      style: TextStyle(fontSize: 6, color: Color(0xFF718AA7)),
+                      style: TextStyle(fontSize: 6, color: Color(0xFF92B9CC)),
                     ),
-                ],
-              ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -1079,7 +1107,7 @@ class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
             key: const ValueKey('matrix-day-pager'),
             controller: _dayController,
             onPageChanged: (value) {
-              HapticFeedback.selectionClick();
+              if (selectedDay != value) HapticFeedback.selectionClick();
               setState(() => selectedDay = value);
             },
             itemCount: widget.controller.plan.length,
@@ -1179,57 +1207,83 @@ class _NormalDaySelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     height: 48,
-    child: ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      scrollDirection: Axis.horizontal,
-      itemCount: plan.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 7),
-      itemBuilder: (context, index) {
-        final active = index == selected;
-        return GestureDetector(
-          key: ValueKey('matrix-day-$index'),
-          onTap: () => onSelected(index),
-          child: AnimatedScale(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            scale: active ? 1.06 : .94,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-              width: 48,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: active
-                    ? const LinearGradient(
-                        colors: [Color(0xFF4667D8), Color(0xFF21B8CF)],
-                      )
-                    : null,
-                color: active ? null : const Color(0x80101A30),
-                border: Border.all(
-                  color: active
-                      ? const Color(0x806FEAFF)
-                      : const Color(0x263F567B),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      child: Row(
+        children: plan.asMap().entries.map((entry) {
+          final index = entry.key;
+          final active = index == selected;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: GestureDetector(
+                key: ValueKey('matrix-day-$index'),
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onSelected(index),
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(end: active ? 1 : 0),
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, t, child) => Transform.scale(
+                    scale: .96 + .05 * t,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(15),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color.lerp(
+                              const Color(0xB0131E34),
+                              const Color(0xFF536DE4),
+                              t,
+                            )!,
+                            Color.lerp(
+                              const Color(0xA00D172A),
+                              const Color(0xFF20BFD0),
+                              t,
+                            )!,
+                          ],
+                        ),
+                        border: Border.all(
+                          color: Color.lerp(
+                            const Color(0x263F567B),
+                            const Color(0xA06FEAFF),
+                            t,
+                          )!,
+                        ),
+                        boxShadow: t < .01
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF48CDE2,
+                                  ).withValues(alpha: .24 * t),
+                                  blurRadius: 15 * t,
+                                ),
+                              ],
+                      ),
+                      child: child,
+                    ),
+                  ),
+                  child: Center(
+                    child: AnimatedDefaultTextStyle(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutCubic,
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                        color: active ? Colors.white : const Color(0xFF8798B3),
+                      ),
+                      child: Text(entry.value.day, maxLines: 1),
+                    ),
+                  ),
                 ),
-                boxShadow: active
-                    ? const [
-                        BoxShadow(color: Color(0x3D48CDE2), blurRadius: 14),
-                      ]
-                    : null,
-              ),
-              alignment: Alignment.center,
-              child: AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 200),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                  color: active ? Colors.white : const Color(0xFF8798B3),
-                ),
-                child: Text(plan[index].day),
               ),
             ),
-          ),
-        );
-      },
+          );
+        }).toList(),
+      ),
     ),
   );
 }
@@ -1539,7 +1593,6 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                 ),
               ],
             ),
-      if (expanded) _WeekNavigator(controller: widget.controller),
       Expanded(
         child: LayoutBuilder(
           builder: (context, box) {
@@ -1570,6 +1623,14 @@ class _GalaxyScreenState extends State<GalaxyScreen>
           },
         ),
       ),
+      if (expanded)
+        FadeTransition(
+          opacity: CurvedAnimation(
+            parent: _fissionController,
+            curve: const Interval(.68, 1, curve: Curves.easeOutCubic),
+          ),
+          child: _WeekNavigator(controller: widget.controller),
+        ),
     ],
   );
 
