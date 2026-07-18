@@ -42,18 +42,32 @@ jobs:
           PULSAR_KEY_ALIAS: ${{ secrets.PULSAR_KEY_ALIAS }}
           PULSAR_KEY_PASSWORD: ${{ secrets.PULSAR_KEY_PASSWORD }}
 
-      - name: Rename APK
+      - name: Preserve universal APK
         run: cp build/app/outputs/flutter-apk/app-release.apk Pulsar-${{ github.ref_name }}.apk
+
+      - name: Build smaller architecture APKs
+        run: flutter build apk --release --split-per-abi
+        env:
+          PULSAR_STORE_FILE: pulsar-release.jks
+          PULSAR_STORE_PASSWORD: ${{ secrets.PULSAR_STORE_PASSWORD }}
+          PULSAR_KEY_ALIAS: ${{ secrets.PULSAR_KEY_ALIAS }}
+          PULSAR_KEY_PASSWORD: ${{ secrets.PULSAR_KEY_PASSWORD }}
+
+      - name: Rename APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk Pulsar-${{ github.ref_name }}-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk Pulsar-${{ github.ref_name }}-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk Pulsar-${{ github.ref_name }}-x86_64.apk
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Pulsar-APK
-          path: Pulsar-${{ github.ref_name }}.apk
+          path: Pulsar-${{ github.ref_name }}*.apk
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: Pulsar-${{ github.ref_name }}.apk
+          files: Pulsar-${{ github.ref_name }}*.apk
           generate_release_notes: true

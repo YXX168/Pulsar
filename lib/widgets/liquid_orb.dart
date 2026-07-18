@@ -24,15 +24,22 @@ class PulsarPalette {
 /// A single slow clock shared by every orb. Only CustomPainter repaints while
 /// the widget tree stays still.
 class PulsarMotion extends StatefulWidget {
-  const PulsarMotion({required this.child, super.key});
+  const PulsarMotion({required this.child, this.level = 2, super.key});
 
   final Widget child;
+  final int level;
 
   static Animation<double> of(BuildContext context) =>
       context
           .dependOnInheritedWidgetOfExactType<_PulsarMotionInherited>()
           ?.animation ??
       const AlwaysStoppedAnimation<double>(0.16);
+
+  static int levelOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_PulsarMotionInherited>()
+          ?.level ??
+      2;
 
   @override
   State<PulsarMotion> createState() => _PulsarMotionState();
@@ -48,7 +55,24 @@ class _PulsarMotionState extends State<PulsarMotion>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 11),
-    )..repeat();
+    );
+    _syncMotion();
+  }
+
+  @override
+  void didUpdateWidget(PulsarMotion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.level != widget.level) _syncMotion();
+  }
+
+  void _syncMotion() {
+    if (widget.level == 0) {
+      _controller.stop();
+      _controller.value = .16;
+    } else {
+      _controller.duration = Duration(seconds: widget.level == 1 ? 16 : 11);
+      if (!_controller.isAnimating) _controller.repeat();
+    }
   }
 
   @override
@@ -58,17 +82,26 @@ class _PulsarMotionState extends State<PulsarMotion>
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _PulsarMotionInherited(animation: _controller, child: widget.child);
+  Widget build(BuildContext context) => _PulsarMotionInherited(
+    animation: _controller,
+    level: widget.level,
+    child: widget.child,
+  );
 }
 
 class _PulsarMotionInherited extends InheritedWidget {
-  const _PulsarMotionInherited({required this.animation, required super.child});
+  const _PulsarMotionInherited({
+    required this.animation,
+    required this.level,
+    required super.child,
+  });
 
   final Animation<double> animation;
+  final int level;
 
   @override
-  bool updateShouldNotify(_PulsarMotionInherited oldWidget) => false;
+  bool updateShouldNotify(_PulsarMotionInherited oldWidget) =>
+      level != oldWidget.level;
 }
 
 class LiquidOrb extends StatefulWidget {
@@ -144,6 +177,7 @@ class _LiquidOrbState extends State<LiquidOrb>
     final motion = widget.animate
         ? PulsarMotion.of(context)
         : const AlwaysStoppedAnimation<double>(0.16);
+    final quality = widget.animate ? PulsarMotion.levelOf(context) : 0;
 
     final visual = ScaleTransition(
       scale: _entry,
@@ -161,6 +195,7 @@ class _LiquidOrbState extends State<LiquidOrb>
                   progress: progress,
                   complete: widget.complete,
                   hero: widget.hero,
+                  quality: quality,
                 ),
               ),
             ),
@@ -242,6 +277,7 @@ class LightClusterPainter extends CustomPainter {
     required this.progress,
     required this.complete,
     required this.hero,
+    required this.quality,
   }) : super(repaint: animation);
 
   final Animation<double> animation;
@@ -249,6 +285,7 @@ class LightClusterPainter extends CustomPainter {
   final double progress;
   final bool complete;
   final bool hero;
+  final int quality;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -292,16 +329,18 @@ class LightClusterPainter extends CustomPainter {
       alpha: .34,
       nodeRadius: 1.45,
     );
-    _drawOrbit(
-      canvas,
-      center,
-      theta * 2 + 3.4,
-      width: clusterRadius * 2.9,
-      height: clusterRadius * .78,
-      tilt: .24,
-      alpha: .26,
-      nodeRadius: 1.05,
-    );
+    if (quality >= 2) {
+      _drawOrbit(
+        canvas,
+        center,
+        theta * 2 + 3.4,
+        width: clusterRadius * 2.9,
+        height: clusterRadius * .78,
+        tilt: .24,
+        alpha: .26,
+        nodeRadius: 1.05,
+      );
+    }
 
     // The main light mass has a diffuse boundary and a warm-white center.
     _drawSoftCircle(
@@ -472,7 +511,12 @@ class LightClusterPainter extends CustomPainter {
   ) {
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    for (var stream = 0; stream < 6; stream++) {
+    final streamCount = quality >= 2
+        ? 6
+        : quality == 1
+        ? 4
+        : 3;
+    for (var stream = 0; stream < streamCount; stream++) {
       final streamRadius = radius * (.30 + stream * .105);
       final bounds = Rect.fromCircle(center: Offset.zero, radius: streamRadius);
       final direction = stream.isEven ? 1.0 : -1.0;
@@ -512,7 +556,8 @@ class LightClusterPainter extends CustomPainter {
       palette != oldDelegate.palette ||
       progress != oldDelegate.progress ||
       complete != oldDelegate.complete ||
-      hero != oldDelegate.hero;
+      hero != oldDelegate.hero ||
+      quality != oldDelegate.quality;
 }
 
 class TapPulsePainter extends CustomPainter {

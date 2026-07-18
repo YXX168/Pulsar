@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -39,7 +40,10 @@ class _PulsarAppState extends State<PulsarApp> {
   }
 
   @override
-  Widget build(BuildContext context) => PulsarMotion(
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, child) =>
+        PulsarMotion(level: controller.effectsLevel, child: child!),
     child: MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Pulsar',
@@ -75,20 +79,27 @@ class PulsarController extends ChangeNotifier {
   final storage = PulsarStorage();
   bool ready = false;
   List<WorkoutDay> plan = [];
-  Map<String, Map<int, int>> completed = {};
+  Map<String, Map<String, int>> completed = {};
   List<TrainingEvent> events = [];
   bool galaxyMode = true;
+  int effectsLevel = 2;
 
   Future<void> initialize() async {
     plan = await storage.loadPlan();
-    completed = await storage.loadSets();
+    completed = await storage.loadSets(plan);
     events = await storage.loadEvents();
     galaxyMode = await storage.loadGalaxyMode();
+    effectsLevel = await storage.loadEffectsLevel();
     ready = true;
     notifyListeners();
   }
 
-  int count(WorkoutDay day, int index) => completed[day.keyName]?[index] ?? 0;
+  String progressDate(WorkoutDay day) => scheduledDateKey(day.keyName);
+
+  int count(WorkoutDay day, int index) {
+    if (index < 0 || index >= day.exercises.length) return 0;
+    return completed[progressDate(day)]?[day.exercises[index].id] ?? 0;
+  }
 
   int totalSets(WorkoutDay day) =>
       day.exercises.fold(0, (total, exercise) => total + exercise.sets);
@@ -110,23 +121,49 @@ class PulsarController extends ChangeNotifier {
     int value, {
     bool recordSet = false,
   }) async {
-    completed.putIfAbsent(day.keyName, () => {});
-    completed[day.keyName]![index] = value;
-    if (recordSet && index >= 0 && index < day.exercises.length) {
-      events.insert(
-        0,
-        TrainingEvent(
-          timestamp: DateTime.now(),
-          dayKey: day.keyName,
-          dayLabel: day.day,
-          workoutTitle: day.title,
-          exerciseName: day.exercises[index].name,
-        ),
-      );
+    if (index < 0 || index >= day.exercises.length) return;
+    final exercise = day.exercises[index];
+    final date = progressDate(day);
+    final current = count(day, index);
+    final next = value.clamp(0, exercise.sets);
+    completed.putIfAbsent(date, () => {});
+    completed[date]![exercise.id] = next;
+
+    if (next > current) {
+      for (var offset = 0; offset < next - current; offset++) {
+        final timestamp = DateTime.now().add(Duration(microseconds: offset));
+        events.insert(
+          0,
+          TrainingEvent(
+            timestamp: timestamp,
+            dayKey: day.keyName,
+            dayLabel: day.day,
+            workoutTitle: day.title,
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            scheduledDateKey: date,
+            kind: exercise.kind,
+            reps: exercise.reps,
+            weight: exercise.weight,
+            note: exercise.note,
+          ),
+        );
+      }
+    } else if (next < current) {
+      var remaining = current - next;
+      events.removeWhere((event) {
+        if (remaining <= 0 ||
+            event.exerciseId != exercise.id ||
+            event.scheduledDateKey != date) {
+          return false;
+        }
+        remaining--;
+        return true;
+      });
     }
     notifyListeners();
     await storage.saveSets(completed);
-    if (recordSet) await storage.saveEvents(events);
+    await storage.saveEvents(events);
   }
 
   int setsOnDate(DateTime date) => events.where((event) {
@@ -137,6 +174,22 @@ class PulsarController extends ChangeNotifier {
   }).length;
 
   int get activeDays => events.map((event) => event.dateKey).toSet().length;
+
+  double get totalVolume =>
+      events.fold(0, (sum, event) => sum + event.estimatedVolume);
+
+  List<TrainingEvent> get personalBests {
+    final best = <String, TrainingEvent>{};
+    for (final event in events.where((event) => event.weight > 0)) {
+      final current = best[event.exerciseId];
+      if (current == null || event.weight > current.weight) {
+        best[event.exerciseId] = event;
+      }
+    }
+    final values = best.values.toList()
+      ..sort((a, b) => b.weight.compareTo(a.weight));
+    return values;
+  }
 
   int get currentStreak {
     final active = events.map((event) => event.dateKey).toSet();
@@ -173,6 +226,7 @@ class PulsarController extends ChangeNotifier {
         workoutTitle: first.workoutTitle,
         sets: items.length,
         exerciseCount: items.map((event) => event.exerciseName).toSet().length,
+        volume: items.fold(0, (sum, event) => sum + event.estimatedVolume),
       );
     }).toList()..sort((a, b) => b.date.compareTo(a.date));
     return summaries;
@@ -195,9 +249,68 @@ class PulsarController extends ChangeNotifier {
     await storage.saveGalaxyMode(enabled);
   }
 
+  Future<void> setEffectsLevel(int level) async {
+    effectsLevel = level.clamp(0, 2);
+    notifyListeners();
+    await storage.saveEffectsLevel(effectsLevel);
+  }
+
+  String exportBackup() => jsonEncode({
+    'schema': 2,
+    'exportedAt': DateTime.now().toIso8601String(),
+    'plan': plan.map((day) => day.toJson()).toList(),
+    'completed': completed,
+    'events': events.map((event) => event.toJson()).toList(),
+  });
+
+  Future<bool> importBackup(String raw) async {
+    try {
+      final data = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      final restoredPlan = (data['plan'] as List)
+          .whereType<Map>()
+          .map((item) => WorkoutDay.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+      final restoredSets = Map<String, dynamic>.from(data['completed'] as Map)
+          .map(
+            (date, values) => MapEntry(
+              date,
+              Map<String, dynamic>.from(
+                values as Map,
+              ).map((id, value) => MapEntry(id, (value as num).toInt())),
+            ),
+          );
+      final restoredEvents = (data['events'] as List)
+          .whereType<Map>()
+          .map(
+            (item) => TrainingEvent.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList();
+      if (restoredPlan.length != 7) return false;
+      plan = restoredPlan;
+      completed = restoredSets;
+      events = restoredEvents;
+      await storage.replaceAll(plan: plan, sets: completed, events: events);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> clearRecords() async {
     completed = {};
     events = [];
+    notifyListeners();
+    await storage.saveSets(completed);
+    await storage.saveEvents(events);
+  }
+
+  Future<void> undoLastSet() async {
+    if (events.isEmpty) return;
+    final event = events.removeAt(0);
+    final values = completed[event.scheduledDateKey];
+    final current = values?[event.exerciseId] ?? 0;
+    if (current > 0) values![event.exerciseId] = current - 1;
     notifyListeners();
     await storage.saveSets(completed);
     await storage.saveEvents(events);
@@ -215,51 +328,77 @@ class PulsarShell extends StatefulWidget {
 
 class _PulsarShellState extends State<PulsarShell> {
   int index = 0;
+  bool galaxyExpanded = false;
+  final _galaxyKey = GlobalKey<_GalaxyScreenState>();
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       widget.controller.galaxyMode
-          ? GalaxyScreen(controller: widget.controller)
+          ? GalaxyScreen(
+              key: _galaxyKey,
+              controller: widget.controller,
+              onExpandedChanged: (value) {
+                if (galaxyExpanded != value && mounted) {
+                  setState(() => galaxyExpanded = value);
+                }
+              },
+            )
           : NormalWorkoutScreen(controller: widget.controller),
       RecordsScreen(controller: widget.controller),
       SettingsScreen(controller: widget.controller),
     ];
-    return Scaffold(
-      extendBody: true,
-      body: PulsarBackdrop(
-        child: SafeArea(
-          bottom: false,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 72),
-            child: IndexedStack(index: index, children: pages),
+    // WillPopScope is intentionally used here because this shell owns the
+    // in-page constellation state and must consume Android's hardware back.
+    // ignore: deprecated_member_use
+    return WillPopScope(
+      onWillPop: () async {
+        if (index != 0) {
+          HapticFeedback.selectionClick();
+          setState(() => index = 0);
+          return false;
+        } else if (galaxyExpanded) {
+          await _galaxyKey.currentState?._collapseGalaxy();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        extendBody: true,
+        body: PulsarBackdrop(
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 72),
+              child: IndexedStack(index: index, children: pages),
+            ),
           ),
         ),
-      ),
-      bottomNavigationBar: _PulsarDock(
-        height: 68,
-        selectedIndex: index,
-        onDestinationSelected: (value) {
-          HapticFeedback.selectionClick();
-          setState(() => index = value);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.blur_circular_outlined),
-            selectedIcon: Icon(Icons.blur_circular_rounded),
-            label: '训练',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights_rounded),
-            label: '记录',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune_rounded),
-            selectedIcon: Icon(Icons.tune_rounded),
-            label: '计划',
-          ),
-        ],
+        bottomNavigationBar: _PulsarDock(
+          height: 68,
+          selectedIndex: index,
+          onDestinationSelected: (value) {
+            HapticFeedback.selectionClick();
+            setState(() => index = value);
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.blur_circular_outlined),
+              selectedIcon: Icon(Icons.blur_circular_rounded),
+              label: '训练',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.insights_outlined),
+              selectedIcon: Icon(Icons.insights_rounded),
+              label: '记录',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.tune_rounded),
+              selectedIcon: Icon(Icons.tune_rounded),
+              label: '计划',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -417,77 +556,166 @@ class _AmbientGlow extends StatelessWidget {
 }
 
 class PulsarHeader extends StatelessWidget {
-  const PulsarHeader({super.key, this.title, this.progress, this.onBack});
+  const PulsarHeader({
+    super.key,
+    this.title,
+    this.progress,
+    this.onBack,
+    this.energyExpanded = false,
+    this.energyLabel,
+    this.energyValue,
+    this.energyTotal,
+  });
 
   final String? title;
   final double? progress;
   final VoidCallback? onBack;
+  final bool energyExpanded;
+  final String? energyLabel;
+  final int? energyValue;
+  final int? energyTotal;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 78,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      child: Row(
+  Widget build(BuildContext context) {
+    final expandedWidth = math.min(
+      MediaQuery.sizeOf(context).width - 82,
+      310.0,
+    );
+    return SizedBox(
+      height: 78,
+      child: Stack(
         children: [
-          if (onBack != null)
-            IconButton(
-              onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_rounded, size: 21),
-            )
-          else
-            const _Brand(),
-          if (title != null)
-            Expanded(
-              child: Text(
-                title!,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          if (progress != null)
-            SizedBox(
-              width: 82,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${(progress! * 100).round()}%',
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFB8C3D8),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(9),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 2,
-                      backgroundColor: const Color(0x192A3854),
-                      valueColor: const AlwaysStoppedAnimation(
-                        Color(0xFF00DBFF),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              children: [
+                if (onBack != null)
+                  IconButton(
+                    onPressed: onBack,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 21),
+                  )
+                else
+                  const _Brand(),
+                if (title != null)
+                  Expanded(
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 130),
+                      opacity: energyExpanded ? 0 : 1,
+                      child: Text(
+                        title!,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
-                ],
+                if (progress != null || onBack != null)
+                  const SizedBox(width: 92)
+                else
+                  const Spacer(),
+              ],
+            ),
+          ),
+          if (progress != null)
+            Positioned(
+              right: 18,
+              top: energyExpanded ? 11 : 20,
+              child: AnimatedContainer(
+                key: const ValueKey('header-energy-meter'),
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                width: energyExpanded ? expandedWidth : 82,
+                height: energyExpanded ? 56 : 38,
+                padding: EdgeInsets.symmetric(
+                  horizontal: energyExpanded ? 14 : 0,
+                  vertical: energyExpanded ? 9 : 2,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(energyExpanded ? 18 : 8),
+                  color: energyExpanded
+                      ? const Color(0xF20B1730)
+                      : Colors.transparent,
+                  border: energyExpanded
+                      ? Border.all(color: const Color(0x6659DFF4))
+                      : null,
+                  boxShadow: energyExpanded
+                      ? const [
+                          BoxShadow(color: Color(0x4429CFE8), blurRadius: 22),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (energyExpanded)
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.bolt_rounded,
+                            size: 13,
+                            color: Color(0xFF79E9F7),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              energyLabel ?? '能量同步',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${energyValue ?? 0} / ${energyTotal ?? 0}',
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF87EDFA),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        '${(progress! * 100).round()}%',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFB8C3D8),
+                        ),
+                      ),
+                    SizedBox(height: energyExpanded ? 7 : 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(9),
+                      child: LinearProgressIndicator(
+                        value: energyExpanded && (energyTotal ?? 0) > 0
+                            ? ((energyValue ?? 0) / energyTotal!).clamp(
+                                0.0,
+                                1.0,
+                              )
+                            : progress,
+                        minHeight: energyExpanded ? 4 : 2,
+                        backgroundColor: const Color(0xFF182642),
+                        valueColor: const AlwaysStoppedAnimation(
+                          Color(0xFF54E8F5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            )
-          else if (onBack != null)
-            const SizedBox(width: 48)
-          else
-            const Spacer(),
+            ),
         ],
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _Brand extends StatelessWidget {
@@ -552,26 +780,33 @@ class NormalWorkoutScreen extends StatefulWidget {
 
 class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
   late int selectedDay;
+  late final PageController _dayController;
 
   @override
   void initState() {
     super.initState();
     selectedDay = DateTime.now().weekday - 1;
+    _dayController = PageController(initialPage: selectedDay);
+  }
+
+  @override
+  void dispose() {
+    _dayController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final day = widget.controller.plan[selectedDay];
     return Column(
       children: [
         Stack(
           children: [
-            const PulsarHeader(title: 'NORMAL MODE'),
+            const PulsarHeader(title: '脉冲矩阵'),
             Positioned(
               right: 12,
               top: 12,
               child: IconButton(
-                tooltip: '切换至星海模式',
+                tooltip: '切换至星环模式',
                 onPressed: () => widget.controller.setGalaxyMode(true),
                 icon: const Icon(Icons.auto_awesome_rounded, size: 20),
               ),
@@ -584,28 +819,64 @@ class _NormalWorkoutScreenState extends State<NormalWorkoutScreen> {
           onSelected: (value) {
             HapticFeedback.selectionClick();
             setState(() => selectedDay = value);
+            final current = _dayController.page?.round() ?? selectedDay;
+            if ((current - value).abs() > 1) {
+              _dayController.jumpToPage(value);
+            } else {
+              _dayController.animateToPage(
+                value,
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+              );
+            }
           },
         ),
         const SizedBox(height: 10),
-        _NormalProgressCard(controller: widget.controller, day: day),
-        const SizedBox(height: 10),
         Expanded(
-          child: day.exercises.isEmpty
-              ? _NormalRestCard(day: day)
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 28),
-                  itemCount: day.exercises.length,
-                  itemBuilder: (context, index) => _NormalExerciseCard(
-                    day: day,
-                    exercise: day.exercises[index],
-                    index: index,
-                    value: widget.controller.count(day, index),
-                    palette:
-                        PulsarPalette.values[(day.palette + index) %
-                            PulsarPalette.values.length],
-                    onTap: () => _toggle(day, index),
+          child: PageView.builder(
+            key: const ValueKey('matrix-day-pager'),
+            controller: _dayController,
+            onPageChanged: (value) {
+              HapticFeedback.selectionClick();
+              setState(() => selectedDay = value);
+            },
+            itemCount: widget.controller.plan.length,
+            itemBuilder: (context, page) {
+              final pageDay = widget.controller.plan[page];
+              return Column(
+                children: [
+                  _NormalProgressCard(
+                    controller: widget.controller,
+                    day: pageDay,
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: pageDay.exercises.isEmpty
+                        ? _NormalRestCard(day: pageDay)
+                        : ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 28),
+                            itemCount: pageDay.exercises.length,
+                            itemBuilder: (context, index) =>
+                                _NormalExerciseCard(
+                                  day: pageDay,
+                                  exercise: pageDay.exercises[index],
+                                  index: index,
+                                  value: widget.controller.count(
+                                    pageDay,
+                                    index,
+                                  ),
+                                  palette:
+                                      PulsarPalette.values[(pageDay.palette +
+                                              index) %
+                                          PulsarPalette.values.length],
+                                  onTap: () => _toggle(pageDay, index),
+                                ),
+                          ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ],
     );
@@ -648,6 +919,7 @@ class _NormalDaySelector extends StatelessWidget {
       itemBuilder: (context, index) {
         final active = index == selected;
         return GestureDetector(
+          key: ValueKey('matrix-day-$index'),
           onTap: () => onSelected(index),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
@@ -893,9 +1165,14 @@ class _NormalRestCard extends StatelessWidget {
 }
 
 class GalaxyScreen extends StatefulWidget {
-  const GalaxyScreen({required this.controller, super.key});
+  const GalaxyScreen({
+    required this.controller,
+    this.onExpandedChanged,
+    super.key,
+  });
 
   final PulsarController controller;
+  final ValueChanged<bool>? onExpandedChanged;
 
   @override
   State<GalaxyScreen> createState() => _GalaxyScreenState();
@@ -911,7 +1188,8 @@ class _GalaxyScreenState extends State<GalaxyScreen>
     super.initState();
     _fissionController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 980),
+      duration: const Duration(milliseconds: 760),
+      reverseDuration: const Duration(milliseconds: 320),
     );
   }
 
@@ -925,7 +1203,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   Widget build(BuildContext context) => Column(
     children: [
       expanded
-          ? PulsarHeader(title: 'WEEKLY GALAXY', onBack: _collapseGalaxy)
+          ? PulsarHeader(title: '星环模式', onBack: _collapseGalaxy)
           : Stack(
               children: [
                 const PulsarHeader(),
@@ -933,7 +1211,7 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                   right: 12,
                   top: 12,
                   child: IconButton(
-                    tooltip: '切换至普通模式',
+                    tooltip: '切换至脉冲矩阵',
                     onPressed: () => widget.controller.setGalaxyMode(false),
                     icon: const Icon(Icons.view_agenda_rounded, size: 20),
                   ),
@@ -1017,7 +1295,9 @@ class _GalaxyScreenState extends State<GalaxyScreen>
                           total: 100,
                           complete: progress >= 1,
                           hero: true,
+                          showValue: false,
                         ),
+                        const _PulsarCoreGlyph(size: 74),
                         const Text(
                           'WEEKLY CORE',
                           style: TextStyle(
@@ -1042,15 +1322,23 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   void _expandGalaxy() {
     if (expanded) return;
     setState(() => expanded = true);
+    widget.onExpandedChanged?.call(true);
     _fissionController.forward(from: 0);
     HapticFeedback.heavyImpact();
   }
 
   Future<void> _collapseGalaxy() async {
-    if (!expanded || _fissionController.isAnimating) return;
+    if (!expanded) return;
     HapticFeedback.mediumImpact();
-    await _fissionController.reverse();
-    if (mounted) setState(() => expanded = false);
+    await _fissionController.animateBack(
+      0,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeInOutCubic,
+    );
+    if (mounted) {
+      setState(() => expanded = false);
+      widget.onExpandedChanged?.call(false);
+    }
   }
 
   IconData _dayGlyph(int index) => const [
@@ -1219,6 +1507,70 @@ class _DriftingGalaxyNode extends StatelessWidget {
   );
 }
 
+class _PulsarCoreGlyph extends StatelessWidget {
+  const _PulsarCoreGlyph({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: SizedBox.square(
+      dimension: size,
+      child: CustomPaint(painter: const _PulsarCoreGlyphPainter()),
+    ),
+  );
+}
+
+class _PulsarCoreGlyphPainter extends CustomPainter {
+  const _PulsarCoreGlyphPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final glow = Paint()
+      ..color = const Color(0xFF9AF3FF).withValues(alpha: .24)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    canvas.drawCircle(center, size.width * .18, glow);
+
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFFF1FDFF);
+    final r = size.width * .25;
+    for (var arm = 0; arm < 3; arm++) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: r - arm * 4),
+        -math.pi / 2 + arm * math.pi * 2 / 3,
+        math.pi * .52,
+        false,
+        line
+          ..color = Color.lerp(
+            const Color(0xFFFFFFFF),
+            const Color(0xFF77DAFF),
+            arm / 3,
+          )!,
+      );
+    }
+    final diamond = Path()
+      ..moveTo(center.dx, center.dy - 8)
+      ..lineTo(center.dx + 7, center.dy)
+      ..lineTo(center.dx, center.dy + 8)
+      ..lineTo(center.dx - 7, center.dy)
+      ..close();
+    canvas.drawPath(
+      diamond,
+      Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xFFFFFFFF), Color(0xFF74DFFF)],
+        ).createShader(Rect.fromCircle(center: center, radius: 10)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PulsarCoreGlyphPainter oldDelegate) => false;
+}
+
 class DayGalaxyScreen extends StatefulWidget {
   const DayGalaxyScreen({
     required this.controller,
@@ -1243,6 +1595,8 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   int activeExercise = 0;
   bool showExerciseMeter = false;
   Timer? _meterTimer;
+  Timer? _restTimer;
+  int restRemaining = 0;
   bool _allowPop = false;
   bool _closing = false;
 
@@ -1251,7 +1605,8 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     super.initState();
     _breakController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1050),
+      duration: const Duration(milliseconds: 720),
+      reverseDuration: const Duration(milliseconds: 300),
     )..forward();
     _pulseController = AnimationController(
       vsync: this,
@@ -1264,12 +1619,16 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     _breakController.dispose();
     _pulseController.dispose();
     _meterTimer?.cancel();
+    _restTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final day = widget.day;
+    final activeItem = day.exercises.isEmpty
+        ? null
+        : day.exercises[math.min(activeExercise, day.exercises.length - 1)];
     return PopScope<Object?>(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, result) {
@@ -1285,12 +1644,34 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                   title: '${day.day} · ${day.title}',
                   progress: widget.controller.progress(day),
                   onBack: _closeDay,
+                  energyExpanded: showExerciseMeter && activeItem != null,
+                  energyLabel: activeItem?.name,
+                  energyValue: activeItem == null
+                      ? null
+                      : widget.controller.count(day, activeExercise),
+                  energyTotal: activeItem?.sets,
                 ),
                 Expanded(
-                  child: day.rest
-                      ? _RestRecoveryScene(
-                          animation: PulsarMotion.of(context),
-                          palette: PulsarPalette.values[day.palette],
+                  child: day.exercises.isEmpty
+                      ? FadeTransition(
+                          opacity: CurvedAnimation(
+                            parent: _breakController,
+                            curve: Curves.easeOutCubic,
+                            reverseCurve: Curves.easeInCubic,
+                          ),
+                          child: ScaleTransition(
+                            scale: Tween(begin: .18, end: 1.0).animate(
+                              CurvedAnimation(
+                                parent: _breakController,
+                                curve: Curves.easeOutBack,
+                                reverseCurve: Curves.easeInCubic,
+                              ),
+                            ),
+                            child: _RestRecoveryScene(
+                              animation: PulsarMotion.of(context),
+                              palette: PulsarPalette.values[day.palette],
+                            ),
+                          ),
                         )
                       : LayoutBuilder(
                           builder: (context, box) => Stack(
@@ -1316,40 +1697,18 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                                 ),
                               ),
                               ..._exerciseNodes(box.biggest),
-                              Positioned(
-                                top: 6,
-                                left: 0,
-                                right: 0,
-                                child: IgnorePointer(
-                                  child: AnimatedSlide(
-                                    offset: showExerciseMeter
-                                        ? Offset.zero
-                                        : const Offset(0, -.28),
-                                    duration: const Duration(milliseconds: 220),
-                                    curve: Curves.easeOutCubic,
-                                    child: AnimatedOpacity(
-                                      key: const ValueKey(
-                                        'exercise-meter-opacity',
-                                      ),
-                                      opacity: showExerciseMeter ? 1 : 0,
-                                      duration: const Duration(
-                                        milliseconds: 180,
-                                      ),
-                                      child: _ExerciseEnergyMeter(
-                                        exercise: day.exercises[activeExercise],
-                                        value: widget.controller.count(
-                                          day,
-                                          activeExercise,
-                                        ),
-                                        palette:
-                                            PulsarPalette.values[(day.palette +
-                                                    activeExercise) %
-                                                PulsarPalette.values.length],
-                                      ),
+                              if (restRemaining > 0)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 12,
+                                  child: Center(
+                                    child: _RestTimerChip(
+                                      seconds: restRemaining,
+                                      onClose: _stopRestTimer,
                                     ),
                                   ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
@@ -1442,6 +1801,15 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                         armed: armed[index] ?? false,
                         animate: true,
                       ),
+                      if (exercise.kind != 'training')
+                        Positioned(
+                          top: orbSize * .24,
+                          child: Icon(
+                            _activityIcon(exercise.kind),
+                            size: 13,
+                            color: Colors.white.withValues(alpha: .88),
+                          ),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 2),
@@ -1506,6 +1874,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     final next = current + 1;
     armed[index] = false;
     await widget.controller.setCount(widget.day, index, next, recordSet: true);
+    if (exercise.restSeconds > 0) _startRestTimer(exercise.restSeconds);
     if (next >= exercise.sets) {
       HapticFeedback.heavyImpact();
     } else {
@@ -1525,88 +1894,64 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
       if (mounted) Navigator.of(context).pop();
     });
   }
+
+  void _startRestTimer(int seconds) {
+    _restTimer?.cancel();
+    if (!mounted) return;
+    setState(() => restRemaining = seconds);
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || restRemaining <= 1) {
+        timer.cancel();
+        if (mounted) {
+          setState(() => restRemaining = 0);
+          HapticFeedback.mediumImpact();
+        }
+      } else {
+        setState(() => restRemaining--);
+      }
+    });
+  }
+
+  void _stopRestTimer() {
+    _restTimer?.cancel();
+    setState(() => restRemaining = 0);
+  }
 }
 
-class _ExerciseEnergyMeter extends StatelessWidget {
-  const _ExerciseEnergyMeter({
-    required this.exercise,
-    required this.value,
-    required this.palette,
-  });
+class _RestTimerChip extends StatelessWidget {
+  const _RestTimerChip({required this.seconds, required this.onClose});
 
-  final ExercisePlan exercise;
-  final int value;
-  final PulsarPalette palette;
+  final int seconds;
+  final VoidCallback onClose;
 
   @override
-  Widget build(BuildContext context) {
-    final progress = exercise.sets <= 0
-        ? 0.0
-        : (value / exercise.sets).clamp(0.0, 1.0);
-    return Container(
-      height: 46,
-      margin: const EdgeInsets.fromLTRB(18, 0, 18, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: const Color(0x66101D38),
-        border: Border.all(color: palette.edge.withValues(alpha: .32)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 5,
-                height: 5,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: palette.core,
-                  boxShadow: [BoxShadow(color: palette.core, blurRadius: 8)],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  exercise.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: .4,
-                  ),
-                ),
-              ),
-              Text(
-                '$value / ${exercise.sets}',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: palette.core,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(5),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(end: progress),
-              duration: const Duration(milliseconds: 360),
-              curve: Curves.easeOutCubic,
-              builder: (context, animated, child) => LinearProgressIndicator(
-                value: animated,
-                minHeight: 3,
-                backgroundColor: const Color(0xFF17243E),
-                valueColor: AlwaysStoppedAnimation(palette.core),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    key: const ValueKey('rest-timer'),
+    padding: const EdgeInsets.fromLTRB(13, 8, 7, 8),
+    decoration: BoxDecoration(
+      color: const Color(0xEE101C34),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0x5550D7EB)),
+      boxShadow: const [BoxShadow(color: Color(0x332DCDE8), blurRadius: 18)],
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.timer_outlined, size: 14, color: Color(0xFF73E6F3)),
+        const SizedBox(width: 7),
+        Text(
+          '组间恢复  ${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
+          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(width: 4),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: onClose,
+          icon: const Icon(Icons.close_rounded, size: 13),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RestRecoveryScene extends StatelessWidget {
@@ -1840,18 +2185,53 @@ class RecordsScreen extends StatelessWidget {
                   _Metric(value: '${controller.events.length}', label: '累计组数'),
                   const SizedBox(width: 9),
                   _Metric(value: '${controller.activeDays}', label: '活跃天数'),
-                  const SizedBox(width: 9),
+                ],
+              ),
+              const SizedBox(height: 9),
+              Row(
+                children: [
                   _Metric(value: '${controller.currentStreak}', label: '连续天数'),
+                  const SizedBox(width: 9),
+                  _Metric(
+                    value: controller.totalVolume >= 1000
+                        ? '${(controller.totalVolume / 1000).toStringAsFixed(1)}t'
+                        : '${controller.totalVolume.toStringAsFixed(0)}kg',
+                    label: '训练容量',
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
               _EnergyTrend(controller: controller),
               const SizedBox(height: 14),
               _HeatField(controller: controller),
+              if (controller.personalBests.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                _PersonalBestCard(
+                  events: controller.personalBests.take(4).toList(),
+                ),
+              ],
               const SizedBox(height: 24),
-              const Text(
-                '最近训练',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+              Row(
+                children: [
+                  const Text(
+                    '最近训练',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: controller.events.isEmpty
+                        ? null
+                        : () {
+                            HapticFeedback.selectionClick();
+                            controller.undoLastSet();
+                          },
+                    icon: const Icon(Icons.undo_rounded, size: 14),
+                    label: const Text('撤销最近一组'),
+                    style: TextButton.styleFrom(
+                      textStyle: const TextStyle(fontSize: 9),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
               if (summaries.isEmpty)
@@ -2161,6 +2541,65 @@ class _HeatField extends StatelessWidget {
   }
 }
 
+class _PersonalBestCard extends StatelessWidget {
+  const _PersonalBestCard({required this.events});
+
+  final List<TrainingEvent> events;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+    decoration: BoxDecoration(
+      color: const Color(0x94101828),
+      borderRadius: BorderRadius.circular(23),
+      border: Border.all(color: const Color(0x293B5C82)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(
+              Icons.workspace_premium_rounded,
+              size: 15,
+              color: Color(0xFFFFD68A),
+            ),
+            SizedBox(width: 7),
+            Text(
+              '个人纪录',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...events.map(
+          (event) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    event.exerciseName,
+                    style: const TextStyle(fontSize: 9),
+                  ),
+                ),
+                Text(
+                  '${event.weight.toStringAsFixed(event.weight % 1 == 0 ? 0 : 1)} kg',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF8DEAF4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _HistoryCard extends StatelessWidget {
   const _HistoryCard({required this.summary, required this.palette});
 
@@ -2201,7 +2640,9 @@ class _HistoryCard extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               Text(
-                '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个动作',
+                summary.volume > 0
+                    ? '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个动作 · ${summary.volume.toStringAsFixed(0)}kg'
+                    : '${summary.date.month}月${summary.date.day}日 · ${summary.exerciseCount} 个事项',
                 style: const TextStyle(fontSize: 8, color: Color(0xFF7E8BA1)),
               ),
             ],
@@ -2255,79 +2696,150 @@ class _EmptyHistory extends StatelessWidget {
   );
 }
 
-class _ModeSettingsCard extends StatelessWidget {
-  const _ModeSettingsCard({required this.controller});
+class _EffectsSettingsCard extends StatelessWidget {
+  const _EffectsSettingsCard({required this.controller});
 
   final PulsarController controller;
 
   @override
   Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(6),
+    padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
     decoration: BoxDecoration(
+      color: const Color(0xAA10182A),
       borderRadius: BorderRadius.circular(20),
-      color: const Color(0xB20F192D),
-      border: Border.all(color: const Color(0x30456A96)),
+      border: Border.all(color: const Color(0x202F4065)),
     ),
-    child: Row(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _option(
-          icon: Icons.view_agenda_rounded,
-          label: '普通模式',
-          selected: !controller.galaxyMode,
-          onTap: () => controller.setGalaxyMode(false),
+        const Text(
+          '动态效果',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
         ),
-        _option(
-          icon: Icons.auto_awesome_rounded,
-          label: '星海模式',
-          selected: controller.galaxyMode,
-          onTap: () => controller.setGalaxyMode(true),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _effectOption(context, 0, '静谧'),
+            const SizedBox(width: 7),
+            _effectOption(context, 1, '流畅'),
+            const SizedBox(width: 7),
+            _effectOption(context, 2, '极致'),
+          ],
         ),
       ],
     ),
   );
 
-  Widget _option({
-    required IconData icon,
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) => Expanded(
-    child: GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 240),
-        height: 50,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          gradient: selected
-              ? const LinearGradient(
-                  colors: [Color(0x9E4967E6), Color(0x8031C4D5)],
-                )
-              : null,
+  Widget _effectOption(BuildContext context, int value, String label) {
+    final selected = controller.effectsLevel == value;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(13),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          controller.setEffectsLevel(value);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          height: 38,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            gradient: selected
+                ? const LinearGradient(
+                    colors: [Color(0xA34D64E1), Color(0x8731C7D8)],
+                  )
+                : null,
+            color: selected ? null : const Color(0x39152136),
+          ),
+          child: Text(label, style: const TextStyle(fontSize: 9)),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 17,
-              color: selected ? Colors.white : const Color(0xFF7588A7),
+      ),
+    );
+  }
+}
+
+class _BackupSettingsCard extends StatelessWidget {
+  const _BackupSettingsCard({required this.controller});
+
+  final PulsarController controller;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: const Color(0xAA10182A),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0x202F4065)),
+    ),
+    child: Material(
+      type: MaterialType.transparency,
+      child: Row(
+        children: [
+          Expanded(
+            child: ListTile(
+              dense: true,
+              leading: const Icon(Icons.copy_all_rounded, size: 18),
+              title: const Text('复制备份', style: TextStyle(fontSize: 10)),
+              onTap: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: controller.exportBackup()),
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('完整数据备份已复制')));
+              },
             ),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: selected ? Colors.white : const Color(0xFF7588A7),
+          ),
+          Container(width: 1, height: 30, color: const Color(0x263F5574)),
+          Expanded(
+            child: ListTile(
+              dense: true,
+              leading: const Icon(
+                Icons.settings_backup_restore_rounded,
+                size: 18,
               ),
+              title: const Text('恢复备份', style: TextStyle(fontSize: 10)),
+              onTap: () => _restore(context),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
+
+  Future<void> _restore(BuildContext context) async {
+    final field = TextEditingController();
+    final raw = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('恢复 Pulsar 数据'),
+        content: TextField(
+          controller: field,
+          minLines: 5,
+          maxLines: 9,
+          decoration: const InputDecoration(hintText: '粘贴此前复制的 JSON 备份'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(field.text),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    field.dispose();
+    if (raw == null || raw.trim().isEmpty) return;
+    final ok = await controller.importBackup(raw.trim());
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(ok ? '计划与历史已恢复' : '备份内容无法识别')));
+  }
 }
 
 class SettingsScreen extends StatefulWidget {
@@ -2348,9 +2860,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 28),
           children: [
-            _ModeSettingsCard(controller: widget.controller),
             ...widget.controller.plan.map(_dayTile),
             const SizedBox(height: 14),
+            _EffectsSettingsCard(controller: widget.controller),
+            const SizedBox(height: 10),
+            _BackupSettingsCard(controller: widget.controller),
+            const SizedBox(height: 10),
             ListTile(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -2403,100 +2918,371 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ...day.exercises.asMap().entries.map(
           (entry) => _exerciseEditor(day, entry.key, entry.value),
         ),
+        if (day.exercises.isNotEmpty)
+          ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 22),
+            onTap: () => _copyDay(day),
+            leading: const Icon(Icons.copy_rounded, size: 16),
+            title: const Text('复制本日计划到…', style: TextStyle(fontSize: 10)),
+          ),
         ListTile(
+          key: ValueKey('add-item-${day.keyName}'),
           dense: true,
           contentPadding: const EdgeInsets.symmetric(horizontal: 22),
-          onTap: () {
-            setState(() {
-              day.rest = false;
-              day.exercises.add(
-                ExercisePlan(
-                  name: '新训练动作',
-                  target: '目标肌群',
-                  sets: 3,
-                  reps: '12 次',
-                ),
-              );
-            });
-            widget.controller.updatePlan();
-          },
+          onTap: () => _addActivity(day),
           leading: const Icon(Icons.add_circle_outline_rounded, size: 17),
-          title: const Text('添加训练动作', style: TextStyle(fontSize: 10)),
+          title: const Text('添加训练或成长事项', style: TextStyle(fontSize: 10)),
         ),
         const SizedBox(height: 8),
       ],
     ),
   );
 
-  Widget _exerciseEditor(WorkoutDay day, int index, ExercisePlan exercise) =>
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 7, 12, 7),
-        child: Column(
+  Widget _exerciseEditor(
+    WorkoutDay day,
+    int index,
+    ExercisePlan exercise,
+  ) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 7, 12, 7),
+    child: Column(
+      children: [
+        TextFormField(
+          initialValue: exercise.name,
+          style: const TextStyle(fontSize: 11),
+          decoration: const InputDecoration(
+            isDense: true,
+            border: InputBorder.none,
+            hintText: '训练动作',
+          ),
+          onChanged: (value) {
+            exercise.name = value;
+            widget.controller.updatePlan();
+          },
+        ),
+        Row(
           children: [
-            TextFormField(
-              initialValue: exercise.name,
-              style: const TextStyle(fontSize: 11),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: '训练动作',
+            SizedBox(
+              width: 58,
+              child: PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                tooltip: '事项类型',
+                initialValue: exercise.kind,
+                onSelected: (value) {
+                  setState(() => exercise.kind = value);
+                  widget.controller.updatePlan();
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'training', child: Text('训练')),
+                  PopupMenuItem(value: 'reading', child: Text('阅读')),
+                  PopupMenuItem(value: 'study', child: Text('学习')),
+                  PopupMenuItem(value: 'ai', child: Text('AI 创造')),
+                  PopupMenuItem(value: 'recovery', child: Text('恢复')),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0x331B3153),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(_activityIcon(exercise.kind), size: 12),
+                      const SizedBox(width: 4),
+                      Text(
+                        _activityLabel(exercise.kind),
+                        style: const TextStyle(fontSize: 8),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              onChanged: (value) {
-                exercise.name = value;
-                widget.controller.updatePlan();
-              },
             ),
-            Row(
-              children: [
-                SizedBox(
-                  width: 110,
-                  child: TextFormField(
-                    initialValue: exercise.reps,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: Color(0xFF8996A5),
-                    ),
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      border: InputBorder.none,
-                      hintText: '次数或时长',
-                    ),
-                    onChanged: (value) {
-                      exercise.reps = value;
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextFormField(
+                initialValue: exercise.reps,
+                style: const TextStyle(fontSize: 9, color: Color(0xFF8996A5)),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: InputBorder.none,
+                  hintText: '次数或时长',
+                ),
+                onChanged: (value) {
+                  exercise.reps = value;
+                  widget.controller.updatePlan();
+                },
+              ),
+            ),
+            IconButton(
+              tooltip: '上移',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 30, height: 36),
+              onPressed: index == 0
+                  ? null
+                  : () {
+                      setState(() {
+                        final item = day.exercises.removeAt(index);
+                        day.exercises.insert(index - 1, item);
+                      });
                       widget.controller.updatePlan();
                     },
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () {
-                    if (exercise.sets > 1) setState(() => exercise.sets--);
-                    widget.controller.updatePlan();
-                  },
-                  icon: const Icon(Icons.remove, size: 14),
-                ),
-                Text('${exercise.sets} 组', style: const TextStyle(fontSize: 9)),
-                IconButton(
-                  onPressed: () {
-                    setState(() => exercise.sets++);
-                    widget.controller.updatePlan();
-                  },
-                  icon: const Icon(Icons.add, size: 14),
-                ),
-                IconButton(
-                  onPressed: () {
-                    setState(() => day.exercises.removeAt(index));
-                    widget.controller.updatePlan();
-                  },
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    size: 15,
-                    color: Color(0xFFB26B8A),
-                  ),
-                ),
-              ],
+              icon: const Icon(Icons.arrow_upward_rounded, size: 13),
+            ),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 30, height: 36),
+              onPressed: () {
+                if (exercise.sets > 1) setState(() => exercise.sets--);
+                widget.controller.updatePlan();
+              },
+              icon: const Icon(Icons.remove, size: 14),
+            ),
+            Text('${exercise.sets} 组', style: const TextStyle(fontSize: 9)),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 30, height: 36),
+              onPressed: () {
+                setState(() => exercise.sets++);
+                widget.controller.updatePlan();
+              },
+              icon: const Icon(Icons.add, size: 14),
+            ),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 30, height: 36),
+              onPressed: () {
+                setState(() => day.exercises.removeAt(index));
+                widget.controller.updatePlan();
+              },
+              icon: const Icon(
+                Icons.delete_outline,
+                size: 15,
+                color: Color(0xFFB26B8A),
+              ),
             ),
           ],
         ),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                initialValue: exercise.target,
+                style: const TextStyle(fontSize: 9),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: InputBorder.none,
+                  hintText: '目标或分类',
+                ),
+                onChanged: (value) {
+                  exercise.target = value;
+                  widget.controller.updatePlan();
+                },
+              ),
+            ),
+            if (exercise.kind == 'training')
+              SizedBox(
+                width: 84,
+                child: TextFormField(
+                  initialValue: exercise.weight == 0
+                      ? ''
+                      : '${exercise.weight}',
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  style: const TextStyle(fontSize: 9),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: '重量 kg',
+                  ),
+                  onChanged: (value) {
+                    exercise.weight = double.tryParse(value) ?? 0;
+                    widget.controller.updatePlan();
+                  },
+                ),
+              ),
+            if (exercise.kind == 'training')
+              SizedBox(
+                width: 70,
+                child: TextFormField(
+                  initialValue: '${exercise.restSeconds}',
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontSize: 9),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: '休息秒',
+                  ),
+                  onChanged: (value) {
+                    exercise.restSeconds = int.tryParse(value) ?? 0;
+                    widget.controller.updatePlan();
+                  },
+                ),
+              ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextFormField(
+                initialValue: exercise.note,
+                style: const TextStyle(fontSize: 9),
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: InputBorder.none,
+                  hintText: '备注（可选）',
+                ),
+                onChanged: (value) {
+                  exercise.note = value;
+                  widget.controller.updatePlan();
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _addActivity(WorkoutDay day) async {
+    final kind = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF101B31),
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            _ActivityChoice(
+              kind: 'training',
+              title: '训练事项',
+              subtitle: '按组记录力量、有氧或恢复训练',
+            ),
+            _ActivityChoice(
+              kind: 'reading',
+              title: '阅读',
+              subtitle: '书籍、论文或深度阅读',
+            ),
+            _ActivityChoice(kind: 'study', title: '学习', subtitle: '课程、复盘或技能练习'),
+            _ActivityChoice(
+              kind: 'ai',
+              title: 'AI 创造',
+              subtitle: '模型实验、编程与项目推进',
+            ),
+            _ActivityChoice(
+              kind: 'recovery',
+              title: '恢复事项',
+              subtitle: '拉伸、冥想或主动恢复',
+            ),
+          ],
+        ),
+      ),
+    );
+    if (kind == null || !mounted) return;
+    final defaults = switch (kind) {
+      'reading' => ('阅读 30 分钟', '知识输入', 1, '30 分钟'),
+      'study' => ('深度学习', '技能成长', 2, '45 分钟'),
+      'ai' => ('AI 项目推进', '创造与实验', 2, '45 分钟'),
+      'recovery' => ('主动恢复', '身心恢复', 1, '20 分钟'),
+      _ => ('新训练动作', '目标肌群', 3, '12 次'),
+    };
+    setState(() {
+      day.rest = false;
+      day.exercises.add(
+        ExercisePlan(
+          name: defaults.$1,
+          target: defaults.$2,
+          sets: defaults.$3,
+          reps: defaults.$4,
+          kind: kind,
+          restSeconds: kind == 'training' ? 60 : 0,
+        ),
       );
+    });
+    await widget.controller.updatePlan();
+  }
+
+  Future<void> _copyDay(WorkoutDay source) async {
+    final target = await showModalBottomSheet<WorkoutDay>(
+      context: context,
+      backgroundColor: const Color(0xFF101B31),
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: widget.controller.plan
+              .where((day) => day != source)
+              .map(
+                (day) => ListTile(
+                  leading: Icon(
+                    Icons.blur_circular_rounded,
+                    color: PulsarPalette.values[day.palette].core,
+                  ),
+                  title: Text('${day.day} · ${day.title}'),
+                  onTap: () => Navigator.of(context).pop(day),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+    if (target == null || !mounted) return;
+    setState(() {
+      target
+        ..title = source.title
+        ..subtitle = source.subtitle
+        ..rest = false
+        ..exercises = source.exercises
+            .map(
+              (item) => ExercisePlan(
+                name: item.name,
+                target: item.target,
+                sets: item.sets,
+                reps: item.reps,
+                kind: item.kind,
+                weight: item.weight,
+                note: item.note,
+                restSeconds: item.restSeconds,
+              ),
+            )
+            .toList();
+    });
+    await widget.controller.updatePlan();
+  }
 }
+
+class _ActivityChoice extends StatelessWidget {
+  const _ActivityChoice({
+    required this.kind,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String kind;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    key: ValueKey('activity-choice-$kind'),
+    leading: Icon(_activityIcon(kind), color: const Color(0xFF76E5F4)),
+    title: Text(title),
+    subtitle: Text(subtitle, style: const TextStyle(fontSize: 10)),
+    onTap: () => Navigator.of(context).pop(kind),
+  );
+}
+
+IconData _activityIcon(String kind) => switch (kind) {
+  'reading' => Icons.menu_book_rounded,
+  'study' => Icons.school_rounded,
+  'ai' => Icons.memory_rounded,
+  'recovery' => Icons.spa_rounded,
+  _ => Icons.fitness_center_rounded,
+};
+
+String _activityLabel(String kind) => switch (kind) {
+  'reading' => '阅读',
+  'study' => '学习',
+  'ai' => 'AI',
+  'recovery' => '恢复',
+  _ => '训练',
+};
