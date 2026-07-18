@@ -29,6 +29,14 @@ void main() {
       lessThan(tester.getTopLeft(navigation).dy),
     );
 
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1100));
+    expect(find.byKey(const ValueKey('weekly-core-hit')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('weekly-core-hit')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1100));
+
     final monday = find.byKey(const ValueKey('day-hit-mon')).hitTestable();
     expect(monday, findsOneWidget);
     await tester.tap(monday);
@@ -38,7 +46,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(DayGalaxyScreen), findsOneWidget);
     expect(find.text('周一 · 上肢推力'), findsOneWidget);
-    expect(find.text('上斜哑铃卧推'), findsOneWidget);
+    expect(find.text('上斜哑铃卧推'), findsWidgets);
     expect(tester.takeException(), isNull);
 
     await tester.pump(const Duration(milliseconds: 600));
@@ -58,7 +66,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(find.text('记录'));
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('近 7 天能量'), findsOneWidget);

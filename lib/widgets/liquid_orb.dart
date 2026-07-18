@@ -258,14 +258,15 @@ class LightClusterPainter extends CustomPainter {
     final base = size.width * (hero ? .30 : .28);
     final breath = 1 + math.sin(theta) * .045;
     final clusterRadius = base * breath;
+    final energy = .62 + progress * .38;
 
     _drawSoftCircle(
       canvas,
       center,
       clusterRadius * 1.86,
       [
-        palette.core.withValues(alpha: complete ? .31 : .23),
-        palette.edge.withValues(alpha: .13),
+        palette.core.withValues(alpha: complete ? .38 : .12 + progress * .23),
+        palette.edge.withValues(alpha: .08 + progress * .12),
         Colors.transparent,
       ],
       const [.0, .42, 1],
@@ -274,7 +275,7 @@ class LightClusterPainter extends CustomPainter {
     _drawOrbit(
       canvas,
       center,
-      theta * .34,
+      theta,
       width: clusterRadius * 3.35,
       height: clusterRadius * 1.42,
       tilt: -.22,
@@ -284,7 +285,7 @@ class LightClusterPainter extends CustomPainter {
     _drawOrbit(
       canvas,
       center,
-      -theta * .24 + 1.9,
+      -theta + 1.9,
       width: clusterRadius * 2.48,
       height: clusterRadius * 2.12,
       tilt: .68,
@@ -294,7 +295,7 @@ class LightClusterPainter extends CustomPainter {
     _drawOrbit(
       canvas,
       center,
-      theta * .19 + 3.4,
+      theta * 2 + 3.4,
       width: clusterRadius * 2.9,
       height: clusterRadius * .78,
       tilt: .24,
@@ -308,22 +309,22 @@ class LightClusterPainter extends CustomPainter {
       center,
       clusterRadius * 1.12,
       [
-        Colors.white.withValues(alpha: .98),
-        palette.core.withValues(alpha: .88),
-        palette.edge.withValues(alpha: .55),
-        palette.accent.withValues(alpha: .18),
+        Colors.white.withValues(alpha: .68 + progress * .30),
+        palette.core.withValues(alpha: .56 + progress * .32),
+        palette.edge.withValues(alpha: .30 + progress * .28),
+        palette.accent.withValues(alpha: .10 + progress * .12),
         Colors.transparent,
       ],
       const [0, .16, .48, .76, 1],
     );
 
-    _drawEnergySpiral(canvas, center, clusterRadius, theta);
+    _drawEnergySpiral(canvas, center, clusterRadius, theta, energy);
 
     final mistA =
         center +
         Offset(
-          math.cos(theta * .53) * clusterRadius * .31,
-          math.sin(theta * .41) * clusterRadius * .22,
+          math.cos(theta) * clusterRadius * .31,
+          math.sin(theta * 2) * clusterRadius * .22,
         );
     _drawSoftCircle(
       canvas,
@@ -340,8 +341,8 @@ class LightClusterPainter extends CustomPainter {
     final mistB =
         center +
         Offset(
-          math.sin(theta * .37 + 1.2) * clusterRadius * .28,
-          math.cos(theta * .49 + .8) * clusterRadius * .24,
+          math.sin(theta * 2 + 1.2) * clusterRadius * .28,
+          math.cos(theta + .8) * clusterRadius * .24,
         );
     _drawSoftCircle(
       canvas,
@@ -467,13 +468,14 @@ class LightClusterPainter extends CustomPainter {
     Offset center,
     double radius,
     double theta,
+    double energy,
   ) {
     canvas.save();
     canvas.translate(center.dx, center.dy);
     for (var stream = 0; stream < 6; stream++) {
       final streamRadius = radius * (.30 + stream * .105);
       final bounds = Rect.fromCircle(center: Offset.zero, radius: streamRadius);
-      final direction = stream.isEven ? 1.0 : -.72;
+      final direction = stream.isEven ? 1.0 : -1.0;
       canvas.drawArc(
         bounds,
         theta * direction + stream * 1.07,
@@ -487,20 +489,20 @@ class LightClusterPainter extends CustomPainter {
             palette.core,
             palette.accent,
             stream / 7,
-          )!.withValues(alpha: .72 - stream * .065),
+          )!.withValues(alpha: (.72 - stream * .065) * energy),
       );
     }
     final needle = Rect.fromCircle(center: Offset.zero, radius: radius * .92);
     canvas.drawArc(
       needle,
-      -theta * 1.34,
+      -theta * 2,
       .48,
       false,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.65
         ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: .76),
+        ..color = Colors.white.withValues(alpha: .76 * energy),
     );
     canvas.restore();
   }
@@ -511,4 +513,35 @@ class LightClusterPainter extends CustomPainter {
       progress != oldDelegate.progress ||
       complete != oldDelegate.complete ||
       hero != oldDelegate.hero;
+}
+
+class TapPulsePainter extends CustomPainter {
+  TapPulsePainter({required this.animation, required this.color})
+    : super(repaint: animation);
+
+  final Animation<double> animation;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final raw = animation.value.clamp(0.0, 1.0);
+    if (raw <= 0 || raw >= 1) return;
+    final center = Offset(size.width / 2, size.height / 2);
+    for (var wave = 0; wave < 2; wave++) {
+      final t = ((raw - wave * .16) / (1 - wave * .16)).clamp(0.0, 1.0);
+      if (t <= 0) continue;
+      final eased = Curves.easeOutCubic.transform(t);
+      canvas.drawCircle(
+        center,
+        size.shortestSide * (.16 + eased * .34),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4 - wave * .65
+          ..color = color.withValues(alpha: (1 - t) * (.82 - wave * .2)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(TapPulsePainter oldDelegate) => color != oldDelegate.color;
 }

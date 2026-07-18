@@ -15,7 +15,7 @@ class GalaxyScenePainter extends CustomPainter {
 
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    canvas.rotate(-.28 + math.sin(theta * .35) * .018);
+    canvas.rotate(-.28 + math.sin(theta) * .018);
     final galaxyRect = Rect.fromCenter(
       center: Offset.zero,
       width: size.width * 1.22,
@@ -27,7 +27,7 @@ class GalaxyScenePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
         ..shader = SweepGradient(
-          transform: GradientRotation(theta * .08),
+          transform: GradientRotation(theta),
           colors: const [
             Colors.transparent,
             Color(0x4057B5FF),
@@ -43,7 +43,7 @@ class GalaxyScenePainter extends CustomPainter {
     );
     canvas.drawArc(
       inner,
-      theta * .16,
+      theta,
       math.pi * 1.32,
       false,
       Paint()
@@ -57,7 +57,7 @@ class GalaxyScenePainter extends CustomPainter {
       final x = (index * 83 % 103) / 102 * size.width;
       final y = (index * 47 % 101) / 100 * size.height;
       final twinkle =
-          .25 + .75 * ((math.sin(theta * .62 + index * 1.73) + 1) * .5);
+          .25 + .75 * ((math.sin(theta * 2 + index * 1.73) + 1) * .5);
       final radius = index % 11 == 0
           ? 1.35
           : index % 4 == 0
@@ -75,18 +75,20 @@ class GalaxyScenePainter extends CustomPainter {
       );
     }
 
-    final sweepX = (phase * 1.18 % 1) * size.width;
+    final sweepX = phase * size.width;
     canvas.drawCircle(
-      Offset(sweepX, size.height * (.18 + math.sin(theta * .43) * .06)),
+      Offset(sweepX, size.height * (.18 + math.sin(theta) * .06)),
       2.2,
       Paint()..color = const Color(0xE67FE7FF),
     );
     for (var comet = 0; comet < 2; comet++) {
-      final progress = (phase * (.72 + comet * .13) + comet * .41) % 1;
+      final progress = (phase * (comet + 1) + comet * .41) % 1;
       final point = Offset(
         size.width * (.08 + progress * .84),
         size.height *
-            (.36 + comet * .31 + math.sin(theta * .55 + comet * 2.1) * .045),
+            (.36 +
+                comet * .31 +
+                math.sin(theta * (comet + 1) + comet * 2.1) * .045),
       );
       canvas.drawCircle(
         point,

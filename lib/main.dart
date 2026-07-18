@@ -561,7 +561,9 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const PulsarHeader(),
+      expanded
+          ? PulsarHeader(title: 'WEEKLY GALAXY', onBack: _collapseGalaxy)
+          : const PulsarHeader(),
       Expanded(
         child: LayoutBuilder(
           builder: (context, box) {
@@ -666,6 +668,13 @@ class _GalaxyScreenState extends State<GalaxyScreen>
     HapticFeedback.heavyImpact();
   }
 
+  Future<void> _collapseGalaxy() async {
+    if (!expanded || _fissionController.isAnimating) return;
+    HapticFeedback.mediumImpact();
+    await _fissionController.reverse();
+    if (mounted) setState(() => expanded = false);
+  }
+
   List<Widget> _nodes(BuildContext context, Size size) {
     const alignments = [
       Alignment(-.58, -.78),
@@ -724,15 +733,27 @@ class _GalaxyScreenState extends State<GalaxyScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  LiquidOrb(
-                    key: ValueKey('day-${day.keyName}'),
-                    size: orbSize,
-                    palette: PulsarPalette.values[day.palette],
-                    value: (widget.controller.progress(day) * 100).round(),
-                    total: 100,
-                    showValue: !day.rest,
-                    complete: !day.rest && widget.controller.progress(day) >= 1,
-                    hero: isToday,
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      LiquidOrb(
+                        key: ValueKey('day-${day.keyName}'),
+                        size: orbSize,
+                        palette: PulsarPalette.values[day.palette],
+                        value: (widget.controller.progress(day) * 100).round(),
+                        total: 100,
+                        showValue: false,
+                        complete:
+                            !day.rest && widget.controller.progress(day) >= 1,
+                        hero: isToday,
+                      ),
+                      if (day.rest)
+                        Icon(
+                          Icons.nightlight_round,
+                          size: orbSize * .15,
+                          color: const Color(0xFFE2ECFF),
+                        ),
+                    ],
                   ),
                   Text(
                     isToday ? '${day.day} · 今天' : day.day,
@@ -762,8 +783,8 @@ class _GalaxyScreenState extends State<GalaxyScreen>
   void _openDay(BuildContext context, WorkoutDay day, Alignment origin) {
     Navigator.of(context).push(
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 480),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
+        transitionDuration: const Duration(milliseconds: 160),
+        reverseTransitionDuration: const Duration(milliseconds: 120),
         pageBuilder: (context, animation, secondaryAnimation) => FadeTransition(
           opacity: animation,
           child: DayGalaxyScreen(
@@ -797,9 +818,9 @@ class _DriftingGalaxyNode extends StatelessWidget {
     child: child,
     builder: (context, child) {
       final angle = animation.value * math.pi * 2 + phase;
-      final x = math.cos(angle * .72) * amplitude;
+      final x = math.cos(angle) * amplitude;
       final y = math.sin(angle) * amplitude * .74;
-      final scale = 1 + math.sin(angle * .83) * .018;
+      final scale = 1 + math.sin(angle) * .018;
       return Transform.translate(
         offset: Offset(x, y),
         child: Transform.scale(scale: scale, child: child),
@@ -825,9 +846,13 @@ class DayGalaxyScreen extends StatefulWidget {
 }
 
 class _DayGalaxyScreenState extends State<DayGalaxyScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final Map<int, bool> armed = {};
   late final AnimationController _breakController;
+  late final AnimationController _pulseController;
+  int activeExercise = 0;
+  bool _allowPop = false;
+  bool _closing = false;
 
   @override
   void initState() {
@@ -836,86 +861,82 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1050),
     )..forward();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 560),
+    );
   }
 
   @override
   void dispose() {
     _breakController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final day = widget.day;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: PulsarBackdrop(
-        child: SafeArea(
-          child: Column(
-            children: [
-              PulsarHeader(
-                title: '${day.day} · ${day.title}',
-                progress: widget.controller.progress(day),
-                onBack: () => Navigator.pop(context),
-              ),
-              Expanded(
-                child: day.rest
-                    ? const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.nightlight_round,
-                              color: Color(0xFF8390B3),
-                              size: 32,
-                            ),
-                            SizedBox(height: 14),
-                            Text(
-                              '今天休息',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            SizedBox(height: 6),
-                            Text(
-                              '让身体完成恢复与生长',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF78859D),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : LayoutBuilder(
-                        builder: (context, box) => Stack(
-                          children: [
-                            Positioned.fill(
-                              child: CustomPaint(
-                                painter: DayLinesPainter(
-                                  animation: PulsarMotion.of(context),
-                                ),
-                              ),
-                            ),
-                            Positioned.fill(
-                              child: IgnorePointer(
+    return PopScope<Object?>(
+      canPop: _allowPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _closeDay();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: PulsarBackdrop(
+          child: SafeArea(
+            child: Column(
+              children: [
+                PulsarHeader(
+                  title: '${day.day} · ${day.title}',
+                  progress: widget.controller.progress(day),
+                  onBack: _closeDay,
+                ),
+                if (!day.rest)
+                  _ExerciseEnergyMeter(
+                    exercise: day.exercises[activeExercise],
+                    value: widget.controller.count(day, activeExercise),
+                    palette:
+                        PulsarPalette.values[(day.palette + activeExercise) %
+                            PulsarPalette.values.length],
+                  ),
+                Expanded(
+                  child: day.rest
+                      ? _RestRecoveryScene(
+                          animation: PulsarMotion.of(context),
+                          palette: PulsarPalette.values[day.palette],
+                        )
+                      : LayoutBuilder(
+                          builder: (context, box) => Stack(
+                            children: [
+                              Positioned.fill(
                                 child: CustomPaint(
-                                  painter: FissionBurstPainter(
-                                    animation: _breakController,
-                                    origin: widget.launchOrigin,
-                                    color:
-                                        PulsarPalette.values[day.palette].core,
+                                  painter: DayLinesPainter(
+                                    animation: PulsarMotion.of(context),
                                   ),
                                 ),
                               ),
-                            ),
-                            ..._exerciseNodes(box.biggest),
-                          ],
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: CustomPaint(
+                                    painter: FissionBurstPainter(
+                                      animation: _breakController,
+                                      origin: widget.launchOrigin,
+                                      color: PulsarPalette
+                                          .values[day.palette]
+                                          .core,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              ..._exerciseNodes(box.biggest),
+                            ],
+                          ),
                         ),
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -967,17 +988,42 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
               width: 132,
               child: Column(
                 children: [
-                  LiquidOrb(
-                    key: ValueKey('exercise-${day.keyName}-$index'),
-                    size: orbSize,
-                    palette:
-                        PulsarPalette.values[(day.palette + index) %
-                            PulsarPalette.values.length],
-                    value: count.clamp(0, exercise.sets),
-                    total: exercise.sets,
-                    complete: done,
-                    armed: armed[index] ?? false,
-                    animate: true,
+                  Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      if (activeExercise == index)
+                        Positioned(
+                          left: -18,
+                          top: -18,
+                          child: IgnorePointer(
+                            child: SizedBox.square(
+                              dimension: orbSize + 36,
+                              child: CustomPaint(
+                                painter: TapPulsePainter(
+                                  animation: _pulseController,
+                                  color: PulsarPalette
+                                      .values[(day.palette + index) %
+                                          PulsarPalette.values.length]
+                                      .core,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      LiquidOrb(
+                        key: ValueKey('exercise-${day.keyName}-$index'),
+                        size: orbSize,
+                        palette:
+                            PulsarPalette.values[(day.palette + index) %
+                                PulsarPalette.values.length],
+                        value: count.clamp(0, exercise.sets),
+                        total: exercise.sets,
+                        complete: done,
+                        armed: armed[index] ?? false,
+                        animate: true,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1015,6 +1061,8 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
   }
 
   Future<void> _tapExercise(int index, ExercisePlan exercise) async {
+    if (mounted) setState(() => activeExercise = index);
+    _pulseController.forward(from: 0);
     final current = widget.controller.count(widget.day, index);
     if (current >= exercise.sets) {
       if (armed[index] ?? false) {
@@ -1037,6 +1085,202 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
     }
     if (mounted) setState(() {});
   }
+
+  Future<void> _closeDay() async {
+    if (_closing) return;
+    _closing = true;
+    HapticFeedback.mediumImpact();
+    await _breakController.reverse();
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+}
+
+class _ExerciseEnergyMeter extends StatelessWidget {
+  const _ExerciseEnergyMeter({
+    required this.exercise,
+    required this.value,
+    required this.palette,
+  });
+
+  final ExercisePlan exercise;
+  final int value;
+  final PulsarPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = exercise.sets <= 0
+        ? 0.0
+        : (value / exercise.sets).clamp(0.0, 1.0);
+    return Container(
+      height: 46,
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: const Color(0x66101D38),
+        border: Border.all(color: palette.edge.withValues(alpha: .32)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: palette.core,
+                  boxShadow: [BoxShadow(color: palette.core, blurRadius: 8)],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  exercise.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .4,
+                  ),
+                ),
+              ),
+              Text(
+                '$value / ${exercise.sets}',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  color: palette.core,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(end: progress),
+              duration: const Duration(milliseconds: 360),
+              curve: Curves.easeOutCubic,
+              builder: (context, animated, child) => LinearProgressIndicator(
+                value: animated,
+                minHeight: 3,
+                backgroundColor: const Color(0xFF17243E),
+                valueColor: AlwaysStoppedAnimation(palette.core),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RestRecoveryScene extends StatelessWidget {
+  const _RestRecoveryScene({required this.animation, required this.palette});
+
+  final Animation<double> animation;
+  final PulsarPalette palette;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned.fill(
+        child: CustomPaint(painter: DayLinesPainter(animation: animation)),
+      ),
+      Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                LiquidOrb(
+                  size: 220,
+                  palette: palette,
+                  value: 0,
+                  total: 1,
+                  showValue: false,
+                  hero: true,
+                ),
+                const Icon(
+                  Icons.nightlight_round,
+                  size: 34,
+                  color: Color(0xFFF0F5FF),
+                ),
+              ],
+            ),
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFFFFFFFF), Color(0xFF9DC4FF)],
+              ).createShader(bounds),
+              child: const Text(
+                'RECOVERY MODE',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 3,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            const Text(
+              '恢复  ·  睡眠  ·  生长',
+              style: TextStyle(
+                fontSize: 9,
+                color: Color(0xFF9EB1CE),
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _RecoveryChip(icon: Icons.bedtime_outlined, label: '充足睡眠'),
+                SizedBox(width: 8),
+                _RecoveryChip(icon: Icons.self_improvement, label: '轻度拉伸'),
+                SizedBox(width: 8),
+                _RecoveryChip(icon: Icons.water_drop_outlined, label: '补充水分'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _RecoveryChip extends StatelessWidget {
+  const _RecoveryChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(14),
+      color: const Color(0x4D15213A),
+      border: Border.all(color: const Color(0x304F73A6)),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, size: 12, color: const Color(0xFFB8CBEB)),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 8, color: Color(0xFFC7D5EB)),
+        ),
+      ],
+    ),
+  );
 }
 
 class DayLinesPainter extends CustomPainter {
@@ -1050,7 +1294,7 @@ class DayLinesPainter extends CustomPainter {
     final paint = Paint()
       ..shader = LinearGradient(
         colors: const [Color(0x125BD9F4), Color(0x475E76FF), Color(0x145BD9F4)],
-        transform: GradientRotation(theta * .12),
+        transform: GradientRotation(theta),
       ).createShader(Offset.zero & size)
       ..strokeWidth = .85
       ..style = PaintingStyle.stroke;
@@ -1096,7 +1340,7 @@ class DayLinesPainter extends CustomPainter {
     final center = Offset(size.width * .5, size.height * .48);
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    canvas.rotate(-.18 + math.sin(theta * .31) * .035);
+    canvas.rotate(-.18 + math.sin(theta) * .035);
     final orbit = Rect.fromCenter(
       center: Offset.zero,
       width: size.width * .92,
@@ -1104,7 +1348,7 @@ class DayLinesPainter extends CustomPainter {
     );
     canvas.drawArc(
       orbit,
-      theta * .18,
+      theta,
       math.pi * 1.42,
       false,
       Paint()
@@ -1117,8 +1361,8 @@ class DayLinesPainter extends CustomPainter {
     for (var index = 0; index < 34; index++) {
       final x = (index * 71 % 101) / 100 * size.width;
       final baseY = (index * 43 % 97) / 96 * size.height;
-      final y = (baseY + math.sin(theta * .44 + index) * 5) % size.height;
-      final pulse = (math.sin(theta * .73 + index * 1.9) + 1) * .5;
+      final y = (baseY + math.sin(theta + index) * 5) % size.height;
+      final pulse = (math.sin(theta * 2 + index * 1.9) + 1) * .5;
       canvas.drawCircle(
         Offset(x, y),
         index % 7 == 0 ? 1.35 : .55,
@@ -1132,11 +1376,11 @@ class DayLinesPainter extends CustomPainter {
     }
 
     for (var comet = 0; comet < 3; comet++) {
-      final progress =
-          (animation.value * (.55 + comet * .11) + comet * .29) % 1;
+      final progress = (animation.value * (comet + 1) + comet * .29) % 1;
       final point = Offset(
         size.width * (.08 + progress * .84),
-        size.height * (.2 + comet * .29 + math.sin(theta * .6 + comet) * .055),
+        size.height *
+            (.2 + comet * .29 + math.sin(theta * (comet + 1) + comet) * .055),
       );
       canvas.drawCircle(point, 1.4, Paint()..color = const Color(0xD5A9F4FF));
     }
