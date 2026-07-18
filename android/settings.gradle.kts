@@ -11,12 +11,14 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
-        maven("https://maven.aliyun.com/repository/gradle-plugin")
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
         google()
         mavenCentral()
         gradlePluginPortal()
+        // Mirrors are fallbacks only. GitHub runners should prefer the
+        // canonical repositories so a regional 5xx does not break releases.
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/central")
     }
 }
 
