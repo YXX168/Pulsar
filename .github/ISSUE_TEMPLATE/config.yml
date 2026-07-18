@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 下载最新版本
+    url: https://github.com/YXX168/Pulsar/releases/latest
+    about: 提交问题前请先安装最新版本并确认仍能复现。
