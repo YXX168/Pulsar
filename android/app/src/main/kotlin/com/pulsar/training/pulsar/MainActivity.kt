@@ -2,7 +2,6 @@ package com.pulsar.training.pulsar
 
 import android.os.Build
 import android.os.Bundle
-import android.view.View
 import io.flutter.embedding.android.FlutterActivity
 
 class MainActivity : FlutterActivity() {
@@ -25,12 +24,6 @@ class MainActivity : FlutterActivity() {
 
         window.attributes = window.attributes.apply {
             preferredDisplayModeId = best.modeId
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.decorView.setFrameRate(
-                best.refreshRate,
-                View.FRAME_RATE_COMPATIBILITY_DEFAULT,
-            )
         }
     }
 }
