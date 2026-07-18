@@ -5,7 +5,6 @@ import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'models/workout.dart';
 import 'models/training_event.dart';
@@ -21,13 +20,8 @@ DateTime _startOfWeek(DateTime date) => DateTime(
 
 DateTime? _parseDateKey(String value) => DateTime.tryParse(value);
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await FlutterDisplayMode.setHighRefreshRate();
-  } catch (_) {
-    // Some emulators do not expose a selectable display mode.
-  }
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
