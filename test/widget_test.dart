@@ -19,7 +19,7 @@ void main() {
     expect(find.text('周一'), findsOneWidget);
 
     final sunday = find.byKey(const ValueKey('day-hit-sun'));
-    final navigation = find.byKey(const ValueKey('bottom-dock'));
+    final navigation = find.byKey(const ValueKey('orb-navigation'));
     expect(
       tester.getBottomRight(sunday).dy,
       lessThan(tester.getTopLeft(navigation).dy),

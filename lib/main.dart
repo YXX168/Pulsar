@@ -96,7 +96,7 @@ class PulsarController extends ChangeNotifier {
   );
 
   double progress(WorkoutDay day) {
-    if (day.rest) return 1;
+    if (day.rest) return 0;
     final total = totalSets(day);
     return total == 0 ? 0 : doneSets(day) / total;
   }
@@ -214,16 +214,18 @@ class _PulsarShellState extends State<PulsarShell> {
       SettingsScreen(controller: widget.controller),
     ];
     return Scaffold(
+      extendBody: true,
       body: PulsarBackdrop(
         child: SafeArea(
           bottom: false,
-          child: IndexedStack(index: index, children: pages),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 72),
+            child: IndexedStack(index: index, children: pages),
+          ),
         ),
       ),
       bottomNavigationBar: _PulsarDock(
         height: 68,
-        backgroundColor: const Color(0xF2081126),
-        indicatorColor: const Color(0x384C78FF),
         selectedIndex: index,
         onDestinationSelected: (value) {
           HapticFeedback.selectionClick();
@@ -257,94 +259,82 @@ class _PulsarDock extends StatelessWidget {
     required this.onDestinationSelected,
     required this.destinations,
     required this.height,
-    required this.backgroundColor,
-    required this.indicatorColor,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
   final List<NavigationDestination> destinations;
   final double height;
-  final Color backgroundColor;
-  final Color indicatorColor;
 
   @override
   Widget build(BuildContext context) => ColoredBox(
-    color: const Color(0xFF071126),
+    color: Colors.transparent,
     child: SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(18, 7, 18, 9),
-      child: Container(
-        key: const ValueKey('bottom-dock'),
-        height: height,
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(25),
-          color: backgroundColor,
-          border: Border.all(color: const Color(0x405B8FD8)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x3D08101E),
-              blurRadius: 22,
-              offset: Offset(0, 8),
-            ),
-          ],
-        ),
+      minimum: const EdgeInsets.only(bottom: 3),
+      child: SizedBox(
+        key: const ValueKey('orb-navigation'),
+        height: height + 4,
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: destinations.asMap().entries.map((entry) {
             final index = entry.key;
             final destination = entry.value;
             final selected = index == selectedIndex;
-            return Expanded(
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 11),
               child: Semantics(
                 selected: selected,
                 button: true,
                 label: destination.label,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(19),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: () => onDestinationSelected(index),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(19),
-                      gradient: selected
-                          ? const LinearGradient(
-                              colors: [Color(0x704D63FF), Color(0x4543DDF4)],
-                            )
-                          : null,
-                      border: selected
-                          ? Border.all(color: const Color(0x4D91EFFF))
-                          : null,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                  child: SizedBox(
+                    width: 66,
+                    child: Stack(
+                      alignment: Alignment.topCenter,
                       children: [
-                        IconTheme(
-                          data: IconThemeData(
-                            size: 20,
-                            color: selected
-                                ? const Color(0xFFE4F8FF)
-                                : const Color(0xFF7184A5),
+                        AnimatedScale(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          scale: selected ? 1.03 : .78,
+                          child: LiquidOrb(
+                            size: 50,
+                            palette: PulsarPalette.values[index + 1],
+                            value: selected ? 1 : 0,
+                            total: 1,
+                            showValue: false,
+                            hero: selected,
                           ),
-                          child: selected
-                              ? destination.selectedIcon ?? destination.icon
-                              : destination.icon,
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 6),
-                          child: AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 220),
+                        Positioned(
+                          top: 16,
+                          child: IconTheme(
+                            data: IconThemeData(
+                              size: 16,
+                              color: selected
+                                  ? Colors.white
+                                  : const Color(0xFF91A4BF),
+                            ),
+                            child: selected
+                                ? destination.selectedIcon ?? destination.icon
+                                : destination.icon,
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 0,
+                          child: Text(
+                            destination.label,
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 9,
                               fontWeight: selected
                                   ? FontWeight.w700
                                   : FontWeight.w500,
                               color: selected
-                                  ? const Color(0xFFE4F8FF)
-                                  : const Color(0xFF7184A5),
+                                  ? const Color(0xFFDFF9FF)
+                                  : const Color(0xFF778AA7),
                             ),
-                            child: Text(destination.label),
                           ),
                         ),
                       ],
@@ -610,7 +600,8 @@ class GalaxyScreen extends StatelessWidget {
                   palette: PulsarPalette.values[day.palette],
                   value: (controller.progress(day) * 100).round(),
                   total: 100,
-                  complete: controller.progress(day) >= 1,
+                  showValue: !day.rest,
+                  complete: !day.rest && controller.progress(day) >= 1,
                   hero: isToday,
                 ),
                 Text(
@@ -816,8 +807,8 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
         parent: _breakController,
         curve: Interval(
           begin,
-          (begin + .68).clamp(0.0, 1.0),
-          curve: Curves.easeOutBack,
+          (begin + .74).clamp(0.0, 1.0),
+          curve: Curves.easeOutQuint,
         ),
       );
       final count = widget.controller.count(day, index);
@@ -845,7 +836,7 @@ class _DayGalaxyScreenState extends State<DayGalaxyScreen>
                     total: exercise.sets,
                     complete: done,
                     armed: armed[index] ?? false,
-                    entryDelay: Duration(milliseconds: index * 45),
+                    animate: true,
                   ),
                   const SizedBox(height: 2),
                   Text(

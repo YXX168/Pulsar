@@ -118,7 +118,7 @@ class _LiquidOrbState extends State<LiquidOrb>
     );
     _entry = CurvedAnimation(
       parent: _entryController,
-      curve: Curves.easeOutBack,
+      curve: Curves.easeOutCubic,
     );
     if (widget.entryDelay == Duration.zero) {
       _entryController.forward();
@@ -317,6 +317,8 @@ class LightClusterPainter extends CustomPainter {
       const [0, .16, .48, .76, 1],
     );
 
+    _drawEnergySpiral(canvas, center, clusterRadius, theta);
+
     final mistA =
         center +
         Offset(
@@ -456,6 +458,49 @@ class LightClusterPainter extends CustomPainter {
       node,
       nodeRadius,
       Paint()..color = palette.core.withValues(alpha: .98),
+    );
+    canvas.restore();
+  }
+
+  void _drawEnergySpiral(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    double theta,
+  ) {
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    for (var stream = 0; stream < 6; stream++) {
+      final streamRadius = radius * (.30 + stream * .105);
+      final bounds = Rect.fromCircle(center: Offset.zero, radius: streamRadius);
+      final direction = stream.isEven ? 1.0 : -.72;
+      canvas.drawArc(
+        bounds,
+        theta * direction + stream * 1.07,
+        .82 + stream * .105,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 1.45 - stream * .11
+          ..color = Color.lerp(
+            palette.core,
+            palette.accent,
+            stream / 7,
+          )!.withValues(alpha: .72 - stream * .065),
+      );
+    }
+    final needle = Rect.fromCircle(center: Offset.zero, radius: radius * .92);
+    canvas.drawArc(
+      needle,
+      -theta * 1.34,
+      .48,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.05
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.white.withValues(alpha: .76),
     );
     canvas.restore();
   }
