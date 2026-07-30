@@ -144,26 +144,40 @@ class _RecordPageState extends State<RecordPage> {
       appBar: AppBar(
         title: Text(widget.editEntry != null ? '编辑情绪' : '记录情绪'),
         actions: [
-          TextButton(
-            onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text(
-                    '保存',
-                    style: TextStyle(
-                      color: Color(0xFF49BCEB),
-                      fontWeight: FontWeight.w600,
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF49BCEB),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        '保存',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
                     ),
-                  ),
+            ),
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -181,7 +195,7 @@ class _RecordPageState extends State<RecordPage> {
                           icon: _selected!.icon,
                           hero: true,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
                         Text(
                           _selected!.label,
                           style: TextStyle(
@@ -206,7 +220,7 @@ class _RecordPageState extends State<RecordPage> {
                       ),
                     ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 28),
 
             // 情绪选择器
             EmotionPicker(
@@ -217,7 +231,7 @@ class _RecordPageState extends State<RecordPage> {
               },
               orbSize: 64,
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 36),
 
             // 强度选择器
             IntensitySelector(
@@ -228,7 +242,7 @@ class _RecordPageState extends State<RecordPage> {
                 setState(() => _intensity = v);
               },
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 36),
 
             // 备注输入
             _buildNoteField(),
@@ -236,7 +250,7 @@ class _RecordPageState extends State<RecordPage> {
 
             // 标签
             _buildTagsSection(),
-            const SizedBox(height: 60),
+            const SizedBox(height: 80),
           ],
         ),
       ),
@@ -250,7 +264,7 @@ class _RecordPageState extends State<RecordPage> {
         Text(
           '心情笔记',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
             color: Colors.white.withValues(alpha: .8),
           ),
@@ -300,7 +314,7 @@ class _RecordPageState extends State<RecordPage> {
         Text(
           '标签',
           style: TextStyle(
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
             color: Colors.white.withValues(alpha: .8),
           ),

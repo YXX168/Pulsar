@@ -55,18 +55,20 @@ class EmotionGalaxyApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          centerTitle: true,
+          centerTitle: false,
+          titleSpacing: 20,
           titleTextStyle: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
             color: Colors.white,
           ),
         ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: Color(0xFF111729),
+          backgroundColor: Color(0xFF0D1424),
           selectedItemColor: Color(0xFF49BCEB),
           unselectedItemColor: Color(0xFF5A6B8C),
           type: BottomNavigationBarType.fixed,
+          elevation: 0,
         ),
         textTheme: const TextTheme(
           bodyLarge: TextStyle(color: Colors.white),
@@ -153,6 +155,8 @@ class _EmotionGalaxyShellState extends State<EmotionGalaxyShell> {
             if (index != _currentIndex) {
               Haptics.selection();
               setState(() => _currentIndex = index);
+              // 切换 tab 时触发数据刷新，确保各页面显示最新数据
+              _refreshSignal.value++;
             }
           },
           items: const [

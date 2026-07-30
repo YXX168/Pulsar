@@ -108,7 +108,7 @@ class _HistoryPageState extends State<HistoryPage> {
       '七月', '八月', '九月', '十月', '十一月', '十二月'
     ];
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -278,7 +278,7 @@ class _HistoryPageState extends State<HistoryPage> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
       itemCount: entries.length,
       itemBuilder: (context, index) {
         final e = entries[index];

@@ -86,10 +86,17 @@ class _HomePageState extends State<HomePage> {
                     child: CustomScrollView(
                       slivers: [
                         SliverAppBar(
-                          title: const Text('情绪星海'),
+                          title: const Text(
+                            '情绪星海',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                           floating: true,
                           backgroundColor: Colors.transparent,
                           elevation: 0,
+                          automaticallyImplyLeading: false,
                         ),
                         SliverToBoxAdapter(
                           child: _buildHeader(),
@@ -98,7 +105,7 @@ class _HomePageState extends State<HomePage> {
                           child: _buildTodayEntries(),
                         ),
                         const SliverToBoxAdapter(
-                          child: SizedBox(height: 100),
+                          child: SizedBox(height: 120),
                         ),
                       ],
                     ),
@@ -143,20 +150,23 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             greeting,
             style: const TextStyle(
-              fontSize: 24,
+              fontSize: 26,
               fontWeight: FontWeight.w300,
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            '今天记录了 ${_todayEntries.length} 次情绪',
+            _todayEntries.isEmpty
+                ? '今天还没有记录情绪'
+                : '今天记录了 ${_todayEntries.length} 次情绪',
             style: TextStyle(
               fontSize: 14,
               color: Colors.white.withValues(alpha: .5),
@@ -170,7 +180,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildTodayEntries() {
     if (_todayEntries.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 60),
+        padding: const EdgeInsets.only(top: 80),
         child: Column(
           children: [
             Icon(
@@ -200,10 +210,10 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Wrap(
         spacing: 20,
-        runSpacing: 24,
+        runSpacing: 28,
         alignment: WrapAlignment.center,
         children: _todayEntries.asMap().entries.map((entry) {
           final e = entry.value;
@@ -220,15 +230,16 @@ class _HomePageState extends State<HomePage> {
                 icon: type.icon,
                 entryDelay: Duration(milliseconds: entry.key * 60),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(
                 type.label,
                 style: TextStyle(
                   fontSize: 11,
                   color: type.palette.core,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+              const SizedBox(height: 2),
               Text(
                 _formatTime(e.timestamp),
                 style: TextStyle(

@@ -84,14 +84,14 @@ class _StatsPageState extends State<StatsPage> {
               onRefresh: _loadStats,
               color: const Color(0xFF49BCEB),
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
                 children: [
                   _buildOverviewCards(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   _buildDistributionChart(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   _buildHeatmap(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   _buildBackupSection(),
                   const SizedBox(height: 40),
                 ],
@@ -110,21 +110,21 @@ class _StatsPageState extends State<StatsPage> {
           value: '${stats.totalEntries}',
           color: const Color(0xFF49BCEB),
         )),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(child: _StatCard(
           icon: Icons.local_fire_department_rounded,
           label: '连续天数',
           value: '${stats.currentStreak}',
           color: const Color(0xFFF5B544),
         )),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(child: _StatCard(
           icon: Icons.calendar_today_rounded,
           label: '活跃天数',
           value: '${stats.activeDays}',
           color: const Color(0xFF52BEAE),
         )),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(child: _StatCard(
           icon: Icons.trending_up_rounded,
           label: '平均强度',
@@ -450,7 +450,7 @@ class _StatsPageState extends State<StatsPage> {
       if (result == null || result.files.single.path == null) return;
 
       final count = await widget.storage.restoreBackup(result.files.single.path!);
-      await Haptics.success();
+      Haptics.success();
       await _loadStats();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -510,7 +510,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF111729),
         borderRadius: BorderRadius.circular(16),
