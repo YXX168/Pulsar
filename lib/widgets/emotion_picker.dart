@@ -38,37 +38,43 @@ class EmotionPicker extends StatelessWidget {
           alignment: WrapAlignment.center,
           children: EmotionType.values.map((type) {
             final isSelected = type == selected;
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                EmotionOrb(
-                  palette: type.palette,
-                  intensity: selected == null ? 3 : (isSelected ? 5 : 1),
-                  size: orbSize,
-                  icon: type.icon,
-                  selected: isSelected,
-                  onTap: onSelected == null
-                      ? null
-                      : () => onSelected!(type),
-                  entryDelay: Duration(
-                    milliseconds:
-                        EmotionType.values.indexOf(type) * 50,
+            return AnimatedScale(
+              scale: isSelected ? 1.15 : 1.0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutBack,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  EmotionOrb(
+                    palette: type.palette,
+                    intensity: selected == null ? 3 : (isSelected ? 5 : 1),
+                    size: orbSize,
+                    icon: type.icon,
+                    selected: isSelected,
+                    onTap: onSelected == null
+                        ? null
+                        : () => onSelected!(type),
+                    entryDelay: Duration(
+                      milliseconds:
+                          EmotionType.values.indexOf(type) * 50,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  type.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected
-                        ? FontWeight.w700
-                        : FontWeight.w500,
-                    color: isSelected
-                        ? type.palette.core
-                        : Colors.white.withValues(alpha: .6),
+                  const SizedBox(height: 6),
+                  AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: TextStyle(
+                      fontSize: isSelected ? 12 : 11,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                      color: isSelected
+                          ? type.palette.core
+                          : Colors.white.withValues(alpha: .6),
+                    ),
+                    child: Text(type.label),
                   ),
-                ),
-              ],
+                ],
+              ),
             );
           }).toList(),
         ),
@@ -109,6 +115,7 @@ class IntensitySelector extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: IntensityLevel.values.map((level) {
             final isActive = level.value <= value;
+            final isCurrent = level.value == value;
             return GestureDetector(
               onTap: onChanged == null
                   ? null
@@ -116,7 +123,11 @@ class IntensitySelector extends StatelessWidget {
                       Haptics.tap();
                       onChanged!(level.value);
                     },
-              child: AnimatedContainer(
+              child: AnimatedScale(
+                scale: isCurrent ? 1.15 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutBack,
+                child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 width: 48,
                 height: 48,
@@ -153,7 +164,8 @@ class IntensitySelector extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
+              ), // AnimatedContainer
+              ), // AnimatedScale
             );
           }).toList(),
         ),

@@ -19,6 +19,33 @@ class GalaxyScenePainter extends CustomPainter {
     final theta = phase * math.pi * 2;
     final center = Offset(size.width * .5, size.height * .49);
 
+    // ── 星云层（远景深度） ─────────────────────────────
+    for (var nebula = 0; nebula < 3; nebula++) {
+      final nebCenter = Offset(
+        size.width * (.2 + nebula * .3 + math.sin(theta * .3 + nebula * 2) * .03),
+        size.height * (.15 + nebula * .25 + math.cos(theta * .2 + nebula) * .02),
+      );
+      final nebRadius = size.width * (.18 + nebula * .06);
+      final nebColors = [
+        [const Color(0xFF1A2B5C), const Color(0xFF0A0E1A)],   // 深蓝
+        [const Color(0xFF2A1B4C), const Color(0xFF0A0E1A)],   // 深紫
+        [const Color(0xFF1B3A4C), const Color(0xFF0A0E1A)],   // 深青
+      ][nebula];
+      canvas.drawCircle(
+        nebCenter,
+        nebRadius,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              nebColors[0].withValues(alpha: .15),
+              nebColors[1].withValues(alpha: .05),
+              Colors.transparent,
+            ],
+            stops: const [0, .5, 1],
+          ).createShader(Rect.fromCircle(center: nebCenter, radius: nebRadius)),
+      );
+    }
+
     // ── 星系环 ──────────────────────────────────────
     canvas.save();
     canvas.translate(center.dx, center.dy);
@@ -63,17 +90,41 @@ class GalaxyScenePainter extends CustomPainter {
     );
     canvas.restore();
 
-    // ── 星点 ────────────────────────────────────────
-    for (var index = 0; index < 56; index++) {
-      final x = (index * 83 % 103) / 102 * size.width;
-      final y = (index * 47 % 101) / 100 * size.height;
+    // ── 星点（增加到 80 个，更多层次） ─────────────────
+    for (var index = 0; index < 80; index++) {
+      final x = (index * 83 % 107) / 106 * size.width;
+      final y = (index * 47 % 103) / 102 * size.height;
+      // 不同星点用不同频率闪烁，更自然
+      final twinkleFreq = index % 3 == 0 ? 1.5 : index % 3 == 1 ? 2.5 : 3.5;
       final twinkle =
-          .25 + .75 * ((math.sin(theta * 2 + index * 1.73) + 1) * .5);
-      final radius = index % 11 == 0
-          ? 1.35
-          : index % 4 == 0
-              ? .75
-              : .42;
+          .2 + .8 * ((math.sin(theta * twinkleFreq + index * 1.73) + 1) * .5);
+      final radius = index % 13 == 0
+          ? 1.6
+          : index % 7 == 0
+              ? 1.0
+              : index % 4 == 0
+                  ? .75
+                  : .4;
+      // 大星点带十字光芒
+      if (index % 13 == 0 && twinkle > .6) {
+        final sparkleAlpha = (twinkle - .6) * 2.5;
+        canvas.drawLine(
+          Offset(x - radius * 3, y),
+          Offset(x + radius * 3, y),
+          Paint()
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = .5
+            ..color = const Color(0xFFC3E8FF).withValues(alpha: sparkleAlpha * .3),
+        );
+        canvas.drawLine(
+          Offset(x, y - radius * 3),
+          Offset(x, y + radius * 3),
+          Paint()
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = .5
+            ..color = const Color(0xFFC3E8FF).withValues(alpha: sparkleAlpha * .3),
+        );
+      }
       canvas.drawCircle(
         Offset(x, y),
         radius,
@@ -82,7 +133,7 @@ class GalaxyScenePainter extends CustomPainter {
             const Color(0xFF4F8FCA),
             const Color(0xFFC3E8FF),
             twinkle,
-          )!.withValues(alpha: .28 + twinkle * .48),
+          )!.withValues(alpha: .25 + twinkle * .5),
       );
     }
 
@@ -94,20 +145,45 @@ class GalaxyScenePainter extends CustomPainter {
       Paint()..color = const Color(0xE67FE7FF),
     );
 
-    // ── 彗星 ────────────────────────────────────────
-    for (var comet = 0; comet < 2; comet++) {
-      final progress = (phase * (comet + 1) + comet * .41) % 1;
-      final point = Offset(
-        size.width * (.08 + progress * .84),
-        size.height *
-            (.36 +
-                comet * .31 +
-                math.sin(theta * (comet + 1) + comet * 2.1) * .045),
+    // ── 流星（带渐变拖尾） ────────────────────────────
+    for (var comet = 0; comet < 3; comet++) {
+      final progress = (phase * (comet * .4 + .8) + comet * .37) % 1;
+      if (progress < 0 || progress > .85) continue;
+      final cx = size.width * (.08 + progress * .84);
+      final cy = size.height *
+          (.28 + comet * .22 + math.sin(theta * (comet + 1) + comet * 2.1) * .04);
+
+      // 拖尾（渐变线段）
+      final tailLength = 30 + comet * 10;
+      final tailDx = -tailLength * .8;
+      final tailDy = -tailLength * .5;
+      canvas.drawLine(
+        Offset(cx + tailDx, cy + tailDy),
+        Offset(cx, cy),
+        Paint()
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 1.2
+          ..shader = LinearGradient(
+            begin: Alignment(
+              (tailDx.isNegative ? 1 : -1).toDouble(),
+              (tailDy.isNegative ? 1 : -1).toDouble(),
+            ),
+            end: Alignment.zero,
+            colors: [
+              Colors.transparent,
+              const Color(0xFFAEDFFF).withValues(alpha: .6),
+              const Color(0xFFD6F3FF),
+            ],
+          ).createShader(Rect.fromPoints(
+            Offset(cx + tailDx, cy + tailDy),
+            Offset(cx, cy),
+          )),
       );
+      // 流星头部
       canvas.drawCircle(
-        point,
-        1.25 + comet * .35,
-        Paint()..color = const Color(0xBDAEDFFF),
+        Offset(cx, cy),
+        1.5 + comet * .3,
+        Paint()..color = const Color(0xFFE6F7FF),
       );
     }
   }

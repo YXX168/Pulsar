@@ -43,7 +43,7 @@ class _EmotionMotionState extends State<EmotionMotion>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 11),
+      duration: const Duration(seconds: 9),
     );
     _syncMotion();
   }
@@ -60,7 +60,7 @@ class _EmotionMotionState extends State<EmotionMotion>
       _controller.value = .16;
     } else {
       _controller.duration =
-          Duration(seconds: widget.level == 1 ? 16 : 11);
+          Duration(seconds: widget.level == 1 ? 14 : 9);
       if (!_controller.isAnimating) _controller.repeat();
     }
   }
@@ -139,11 +139,11 @@ class _EmotionOrbState extends State<EmotionOrb>
     super.initState();
     _entryController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 460),
+      duration: const Duration(milliseconds: 600),
     );
     _entry = CurvedAnimation(
       parent: _entryController,
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeOutBack,
     );
     if (widget.entryDelay == Duration.zero) {
       _entryController.forward();
@@ -194,7 +194,7 @@ class _EmotionOrbState extends State<EmotionOrb>
             if (widget.icon != null)
               Icon(
                 widget.icon,
-                size: widget.size * .16,
+                size: widget.size * .22,
                 color:
                     Colors.white.withValues(alpha: .92),
               ),
@@ -245,9 +245,12 @@ class EmotionLightPainter extends CustomPainter {
     final theta = phase * math.pi * 2;
     final center = Offset(size.width / 2, size.height / 2);
     final base = size.width * (hero ? .30 : .28);
-    final breath = 1 + math.sin(theta) * .045;
+    // 呼吸效果：幅度从 4.5% 提升到 8%，加上二次谐波更自然
+    final breath = 1 + math.sin(theta) * .06 + math.sin(theta * 2) * .02;
     final clusterRadius = base * breath;
     final energy = .62 + progress * .38;
+    // 选中态的脉冲因子
+    final pulseFactor = selected ? (1 + math.sin(theta * 3) * .05) : 1.0;
 
     // 外层辉光
     _drawSoftCircle(
@@ -372,19 +375,30 @@ class EmotionLightPainter extends CustomPainter {
             palette.core.withValues(alpha: selected ? .96 : .68),
     );
 
-    // 选中状态外环
+    // 选中状态外环（带脉冲动画）
     if (selected) {
-      final selRect = Rect.fromCircle(
-        center: center,
-        radius: clusterRadius * 1.6,
-      );
+      final pulseRadius = clusterRadius * 1.6 * pulseFactor;
       canvas.drawCircle(
         center,
-        clusterRadius * 1.6,
+        pulseRadius,
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.8
           ..color = palette.core.withValues(alpha: .48),
+      );
+      // 第二层脉冲环（延迟相位）
+      final pulse2Radius = clusterRadius * (1.75 + math.sin(theta * 3 + 1) * .04);
+      canvas.drawCircle(
+        center,
+        pulse2Radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0
+          ..color = palette.edge.withValues(alpha: .25),
+      );
+      final selRect = Rect.fromCircle(
+        center: center,
+        radius: pulseRadius,
       );
       canvas.drawArc(
         selRect,
