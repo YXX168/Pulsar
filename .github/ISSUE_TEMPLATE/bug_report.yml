@@ -1,0 +1,126 @@
+name: Bug 报告
+description: 提交一个 Bug 报告以帮助我们改进情绪星海
+title: "[Bug]: "
+labels: ["bug", "待处理"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您抽出时间提交 Bug 报告！请尽量详细地填写以下信息，以便我们更快地定位和修复问题。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug 描述
+      description: 请简要描述遇到的问题。
+      placeholder: 简要描述发生了什么问题……
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请提供复现该问题的具体步骤。
+      placeholder: |
+        1. 打开应用……
+        2. 点击「记录情绪」……
+        3. 选择「开心」情绪……
+        4. 看到错误……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 请描述您期望发生的行为。
+      placeholder: 描述您期望看到的结果……
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 请描述实际发生的行为。
+      placeholder: 描述实际看到的结果……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: emotion-type
+    attributes:
+      label: 涉及的情绪类型
+      description: 该问题是否与某种特定情绪类型相关？
+      options:
+        - 不相关
+        - 喜悦
+        - 平静
+        - 爱意
+        - 感恩
+        - 兴奋
+        - 低落
+        - 焦虑
+        - 愤怒
+        - 疲惫
+        - 多种类型
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与错误信息
+      description: 请粘贴相关的错误日志或控制台输出。
+      render: shell
+      placeholder: |
+        将堆栈跟踪或日志粘贴在此处……
+
+  - type: input
+    id: flutter-version
+    attributes:
+      label: Flutter 版本
+      description: 运行 `flutter --version` 获取版本信息。
+      placeholder: "例如: Flutter 3.27.0"
+    validations:
+      required: true
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android 设备与系统版本
+      description: 请提供设备型号及 Android 版本。
+      placeholder: "例如: Pixel 7, Android 14"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build-mode
+    attributes:
+      label: 构建模式
+      options:
+        - Debug
+        - Profile
+        - Release
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充说明
+      description: 如有截图或其它补充信息，请在此添加。
+      placeholder: 其它有助于理解的上下文……
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: 行为准则
+      description: 提交即表示您同意遵循项目的行为准则。
+      options:
+        - label: 我已搜索过现有 Issue，确认没有重复提交。
+          required: true
+        - label: 我已提供尽可能多的复现信息。
+          required: true

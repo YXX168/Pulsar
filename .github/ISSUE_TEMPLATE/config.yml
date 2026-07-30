@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 社区讨论
+    url: https://github.com/YXX168/EmotionGalaxy/discussions
+    about: 请在 Discussions 中提出问题、分享想法或参与讨论。
+  - name: 安全问题
+    url: https://github.com/YXX168/EmotionGalaxy/security/policy
+    about: 请勿通过 Issue 报告安全漏洞，请参阅安全政策进行私下报告。
