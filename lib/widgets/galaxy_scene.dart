@@ -179,7 +179,7 @@ class EmotionBurstPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(EmotionBurstPainter oldDelegate) =>
-      origin != oldDelegate.origin || color != oldDelegate.accent;
+      origin != oldDelegate.origin || color != oldDelegate.color;
 }
 
 /// 星海背景组件，包裹 GalaxyScenePainter 并提供动画驱动。
