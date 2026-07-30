@@ -71,6 +71,7 @@ class EmotionGalaxyShell extends StatefulWidget {
 
 class _EmotionGalaxyShellState extends State<EmotionGalaxyShell> {
   final EmotionStorage _storage = EmotionStorage();
+  final ValueNotifier<int> _refreshSignal = ValueNotifier(0);
   int _currentIndex = 0;
   int _effectsLevel = 2;
 
@@ -81,11 +82,28 @@ class _EmotionGalaxyShellState extends State<EmotionGalaxyShell> {
     super.initState();
     _loadEffectsLevel();
     _pages = [
-      HomePage(storage: _storage, effectsLevel: _effectsLevel),
-      RecordPage(storage: _storage),
-      HistoryPage(storage: _storage),
-      StatsPage(storage: _storage),
+      HomePage(
+        storage: _storage,
+        effectsLevel: _effectsLevel,
+        refreshSignal: _refreshSignal,
+      ),
+      RecordPage(
+        storage: _storage,
+        popOnSave: false,
+        onSaved: () {
+          _refreshSignal.value++;
+          setState(() => _currentIndex = 0);
+        },
+      ),
+      HistoryPage(storage: _storage, refreshSignal: _refreshSignal),
+      StatsPage(storage: _storage, refreshSignal: _refreshSignal),
     ];
+  }
+
+  @override
+  void dispose() {
+    _refreshSignal.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEffectsLevel() async {

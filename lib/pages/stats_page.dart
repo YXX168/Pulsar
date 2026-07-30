@@ -8,9 +8,14 @@ import '../widgets/emotion_orb.dart';
 
 /// 统计页：情绪分布、连续天数、平均强度、活跃热力图、备份恢复。
 class StatsPage extends StatefulWidget {
-  const StatsPage({required this.storage, super.key});
+  const StatsPage({
+    required this.storage,
+    this.refreshSignal,
+    super.key,
+  });
 
   final EmotionStorage storage;
+  final ValueNotifier<int>? refreshSignal;
 
   @override
   State<StatsPage> createState() => _StatsPageState();
@@ -25,13 +30,16 @@ class _StatsPageState extends State<StatsPage> {
   void initState() {
     super.initState();
     _loadStats();
+    widget.refreshSignal?.addListener(_onRefreshSignal);
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _loadStats();
+  void dispose() {
+    widget.refreshSignal?.removeListener(_onRefreshSignal);
+    super.dispose();
   }
+
+  void _onRefreshSignal() => _loadStats();
 
   Future<void> _loadStats() async {
     final stats = await widget.storage.loadStats(days: 30);
@@ -411,7 +419,7 @@ class _StatsPageState extends State<StatsPage> {
       final dir = await FilePicker.platform.getDirectoryPath();
       if (dir == null) return;
       final path = await widget.storage.exportBackup(dir);
-      await Haptics.success();
+      Haptics.success();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

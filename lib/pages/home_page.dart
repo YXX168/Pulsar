@@ -12,11 +12,13 @@ class HomePage extends StatefulWidget {
   const HomePage({
     required this.storage,
     this.effectsLevel = 2,
+    this.refreshSignal,
     super.key,
   });
 
   final EmotionStorage storage;
   final int effectsLevel;
+  final ValueNotifier<int>? refreshSignal;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -30,13 +32,16 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _loadTodayEntries();
+    widget.refreshSignal?.addListener(_onRefreshSignal);
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _loadTodayEntries();
+  void dispose() {
+    widget.refreshSignal?.removeListener(_onRefreshSignal);
+    super.dispose();
   }
+
+  void _onRefreshSignal() => _loadTodayEntries();
 
   Future<void> _loadTodayEntries() async {
     final entries = await widget.storage.loadEntriesForDate(DateTime.now());
@@ -97,7 +102,7 @@ class _HomePageState extends State<HomePage> {
             bottom: 20,
             child: FloatingActionButton(
               onPressed: () async {
-                await Haptics.tap();
+                Haptics.tap();
                 await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) =>

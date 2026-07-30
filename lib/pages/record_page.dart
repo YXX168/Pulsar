@@ -12,11 +12,18 @@ class RecordPage extends StatefulWidget {
   const RecordPage({
     required this.storage,
     this.editEntry,
+    this.popOnSave = true,
+    this.onSaved,
     super.key,
   });
 
   final EmotionStorage storage;
   final EmotionEntry? editEntry;
+
+  /// 为 true 时保存后 pop 返回（push 场景）；
+  /// 为 false 时保存后清空表单并回调 onSaved（tab 场景）。
+  final bool popOnSave;
+  final VoidCallback? onSaved;
 
   @override
   State<RecordPage> createState() => _RecordPageState();
@@ -49,7 +56,7 @@ class _RecordPageState extends State<RecordPage> {
 
   Future<void> _save() async {
     if (_selected == null) {
-      await Haptics.heavy();
+      Haptics.heavy();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -63,31 +70,66 @@ class _RecordPageState extends State<RecordPage> {
 
     setState(() => _saving = true);
 
-    if (widget.editEntry != null) {
-      final updated = widget.editEntry!.copyWith(
-        emotionId: _selected!.id,
-        intensity: _intensity,
-        note: _noteController.text.trim(),
-        tags: List.of(_tags),
-      );
-      await widget.storage.updateEntry(updated);
-    } else {
-      final entry = EmotionEntry(
-        emotionId: _selected!.id,
-        intensity: _intensity,
-        timestamp: DateTime.now(),
-        note: _noteController.text.trim(),
-        tags: List.of(_tags),
-      );
-      await widget.storage.addEntry(entry);
-    }
+    try {
+      if (widget.editEntry != null) {
+        final updated = widget.editEntry!.copyWith(
+          emotionId: _selected!.id,
+          intensity: _intensity,
+          note: _noteController.text.trim(),
+          tags: List.of(_tags),
+        );
+        await widget.storage.updateEntry(updated);
+      } else {
+        final entry = EmotionEntry(
+          emotionId: _selected!.id,
+          intensity: _intensity,
+          timestamp: DateTime.now(),
+          note: _noteController.text.trim(),
+          tags: List.of(_tags),
+        );
+        await widget.storage.addEntry(entry);
+      }
 
-    await Haptics.success();
+      Haptics.success();
 
-    if (mounted) {
-      setState(() => _saving = false);
-      Navigator.of(context).pop(true);
+      if (!mounted) return;
+
+      if (widget.popOnSave) {
+        Navigator.of(context).pop(true);
+      } else {
+        _resetForm();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('情绪记录已保存'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      widget.onSaved?.call();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('保存失败：$e'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red.withValues(alpha: .3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
+  }
+
+  void _resetForm() {
+    setState(() {
+      _selected = null;
+      _intensity = 3;
+      _noteController.clear();
+      _tags.clear();
+    });
   }
 
   @override

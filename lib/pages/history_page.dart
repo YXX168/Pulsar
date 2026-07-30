@@ -9,9 +9,14 @@ import 'record_page.dart';
 
 /// 历史页：月历视图 + 选中日期的情绪记录列表。
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({required this.storage, super.key});
+  const HistoryPage({
+    required this.storage,
+    this.refreshSignal,
+    super.key,
+  });
 
   final EmotionStorage storage;
+  final ValueNotifier<int>? refreshSignal;
 
   @override
   State<HistoryPage> createState() => _HistoryPageState();
@@ -28,7 +33,16 @@ class _HistoryPageState extends State<HistoryPage> {
     super.initState();
     _selectedDate = DateTime.now();
     _loadMonth();
+    widget.refreshSignal?.addListener(_onRefreshSignal);
   }
+
+  @override
+  void dispose() {
+    widget.refreshSignal?.removeListener(_onRefreshSignal);
+    super.dispose();
+  }
+
+  void _onRefreshSignal() => _loadMonth();
 
   Future<void> _loadMonth() async {
     setState(() => _loading = true);
@@ -276,8 +290,9 @@ class _HistoryPageState extends State<HistoryPage> {
             child: const Icon(Icons.delete_outline_rounded, color: Colors.red),
           ),
           onDismissed: (_) async {
-            await Haptics.heavy();
+            Haptics.heavy();
             await widget.storage.deleteEntry(e.id);
+            widget.refreshSignal?.value++;
             _loadMonth();
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -292,7 +307,7 @@ class _HistoryPageState extends State<HistoryPage> {
             entry: e,
             type: type,
             onTap: () async {
-              await Haptics.tap();
+              Haptics.tap();
               await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>
