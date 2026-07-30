@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
-import '../models/emotion.dart';
 import '../models/emotion_entry.dart';
 import '../services/storage.dart';
 import '../widgets/emotion_orb.dart';
@@ -146,9 +145,9 @@ class _StatsPageState extends State<StatsPage> {
             ),
           ),
           const SizedBox(height: 20),
-          ...stats.distribution.entries.toList()
-            ..sort((a, b) => b.value.compareTo(a.value))
-            .map((e) {
+          ...(stats.distribution.entries.toList()
+                ..sort((a, b) => b.value.compareTo(a.value)))
+              .map((e) {
               final type = e.key;
               final count = e.value;
               final ratio = maxCount > 0 ? count / maxCount : 0.0;

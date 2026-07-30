@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/emotion.dart';
 import '../models/emotion_entry.dart';
 import '../services/storage.dart';
 import '../widgets/emotion_orb.dart';
@@ -160,7 +159,7 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           children: [
             Icon(
-              Icons.auto_awesome_outline_rounded,
+              Icons.auto_awesome_outlined,
               size: 48,
               color: Colors.white.withValues(alpha: .2),
             ),

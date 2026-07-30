@@ -59,8 +59,9 @@ class _HistoryPageState extends State<HistoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedEntries =
-        _selectedDate != null ? _monthEntries[_dateKey(_selectedDate!)] ?? [] : [];
+    final selectedEntries = _selectedDate != null
+        ? _monthEntries[_dateKey(_selectedDate!)] ?? <EmotionEntry>[]
+        : <EmotionEntry>[];
 
     return Scaffold(
       appBar: AppBar(title: const Text('情绪历史')),
