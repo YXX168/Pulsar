@@ -42,7 +42,18 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Build APK
+      - name: Decode signing keystore
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/emotion-galaxy.jks
+          printf 'storeFile=emotion-galaxy.jks\nkeyAlias=%s\nkeyPassword=%s\nstorePassword=%s\n' \
+            "$KEY_ALIAS" "$KEY_PASSWORD" "$KEYSTORE_PASSWORD" > android/key.properties
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Build signed APK
         run: flutter build apk --release --target-platform android-arm64
 
       - name: Upload APK artifact

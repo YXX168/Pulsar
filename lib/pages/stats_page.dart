@@ -102,35 +102,50 @@ class _StatsPageState extends State<StatsPage> {
 
   Widget _buildOverviewCards() {
     final stats = _stats!;
-    return Row(
+    final cards = [
+      _StatCard(
+        icon: Icons.insights_rounded,
+        label: '总记录',
+        value: '${stats.totalEntries}',
+        color: const Color(0xFF49BCEB),
+      ),
+      _StatCard(
+        icon: Icons.local_fire_department_rounded,
+        label: '连续天数',
+        value: '${stats.currentStreak}',
+        color: const Color(0xFFF5B544),
+      ),
+      _StatCard(
+        icon: Icons.calendar_today_rounded,
+        label: '活跃天数',
+        value: '${stats.activeDays}',
+        color: const Color(0xFF52BEAE),
+      ),
+      _StatCard(
+        icon: Icons.trending_up_rounded,
+        label: '平均强度',
+        value: stats.averageIntensity.toStringAsFixed(1),
+        color: const Color(0xFFA578E5),
+      ),
+    ];
+
+    return Column(
       children: [
-        Expanded(child: _StatCard(
-          icon: Icons.insights_rounded,
-          label: '总记录',
-          value: '${stats.totalEntries}',
-          color: const Color(0xFF49BCEB),
-        )),
-        const SizedBox(width: 10),
-        Expanded(child: _StatCard(
-          icon: Icons.local_fire_department_rounded,
-          label: '连续天数',
-          value: '${stats.currentStreak}',
-          color: const Color(0xFFF5B544),
-        )),
-        const SizedBox(width: 10),
-        Expanded(child: _StatCard(
-          icon: Icons.calendar_today_rounded,
-          label: '活跃天数',
-          value: '${stats.activeDays}',
-          color: const Color(0xFF52BEAE),
-        )),
-        const SizedBox(width: 10),
-        Expanded(child: _StatCard(
-          icon: Icons.trending_up_rounded,
-          label: '平均强度',
-          value: stats.averageIntensity.toStringAsFixed(1),
-          color: const Color(0xFFA578E5),
-        )),
+        Row(
+          children: [
+            Expanded(child: cards[0]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[1]),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: cards[2]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[3]),
+          ],
+        ),
       ],
     );
   }
@@ -273,10 +288,14 @@ class _StatsPageState extends State<StatsPage> {
   Widget _buildHeatmapGrid() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final weeks = 12;
-    final startDate = today.subtract(Duration(days: weeks * 7 - 1));
+    const weeks = 12;
 
-    // 计算每天的主要情绪颜色
+    // 对齐到本周日，再往前推 11 周，确保每列从周日开始
+    final daysToSunday = today.weekday % 7; // Dart: 周一=1...周日=7
+    final startDate = today
+        .subtract(Duration(days: daysToSunday))
+        .subtract(const Duration(days: (weeks - 1) * 7));
+
     String dateKey(DateTime d) =>
         '${d.year.toString().padLeft(4, '0')}-'
         '${d.month.toString().padLeft(2, '0')}-'
@@ -287,59 +306,126 @@ class _StatsPageState extends State<StatsPage> {
       entryMap[s.dateKey] = s;
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var row = 0; row < 7; row++)
+    // 星期标签：只在 周一/三/五 显示
+    const weekdayLabels = ['', '一', '', '三', '', '五', ''];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const labelWidth = 22.0;
+        const gap = 3.0;
+        final availableWidth = constraints.maxWidth - labelWidth;
+        final cellSize =
+            ((availableWidth - gap * (weeks - 1)) / weeks).clamp(10.0, 22.0);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var col = 0; col < weeks; col++)
-                  _buildHeatmapCell(
-                    startDate.add(Duration(days: col * 7 + row)),
-                    entryMap,
-                    dateKey,
-                    today,
+                // 左侧星期标签列
+                SizedBox(
+                  width: labelWidth,
+                  child: Column(
+                    children: [
+                      for (var row = 0; row < 7; row++)
+                        SizedBox(
+                          height: cellSize + gap,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              weekdayLabels[row],
+                              style: TextStyle(
+                                fontSize: 9,
+                                color:
+                                    Colors.white.withValues(alpha: .35),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
+                ),
+                // 热力格子
+                Expanded(
+                  child: Column(
+                    children: [
+                      for (var row = 0; row < 7; row++)
+                        Row(
+                          children: [
+                            for (var col = 0; col < weeks; col++)
+                              Container(
+                                width: cellSize,
+                                height: cellSize,
+                                margin: EdgeInsets.only(
+                                  right:
+                                      col < weeks - 1 ? gap : 0,
+                                  bottom: row < 6 ? gap : 0,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _heatmapCellColor(
+                                    startDate.add(
+                                        Duration(days: col * 7 + row)),
+                                    entryMap,
+                                    dateKey,
+                                    today,
+                                  ),
+                                  borderRadius:
+                                      BorderRadius.circular(cellSize * 0.22),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                '少',
-                style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: .3)),
-              ),
-              const SizedBox(width: 4),
-              ...List.generate(5, (i) {
-                return Container(
-                  width: 12,
-                  height: 12,
-                  margin: const EdgeInsets.only(right: 2),
-                  decoration: BoxDecoration(
-                    color: Color.lerp(
-                      const Color(0xFF1A2238),
-                      const Color(0xFF49BCEB),
-                      (i + 1) / 5,
-                    ),
-                    borderRadius: BorderRadius.circular(3),
+            const SizedBox(height: 12),
+            // 图例
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text(
+                  '少',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white.withValues(alpha: .3),
                   ),
-                );
-              }),
-              const SizedBox(width: 4),
-              Text(
-                '多',
-                style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: .3)),
-              ),
-            ],
-          ),
-        ],
-      ),
+                ),
+                const SizedBox(width: 4),
+                ...List.generate(5, (i) {
+                  return Container(
+                    width: cellSize * 0.7,
+                    height: cellSize * 0.7,
+                    margin: const EdgeInsets.only(right: 2),
+                    decoration: BoxDecoration(
+                      color: Color.lerp(
+                        const Color(0xFF1A2238),
+                        const Color(0xFF49BCEB),
+                        (i + 1) / 5,
+                      ),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  );
+                }),
+                const SizedBox(width: 4),
+                Text(
+                  '多',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white.withValues(alpha: .3),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildHeatmapCell(
+  Color _heatmapCellColor(
     DateTime date,
     Map<String, DailySummary> entryMap,
     String Function(DateTime) dateKeyFn,
@@ -349,26 +435,19 @@ class _StatsPageState extends State<StatsPage> {
     final summary = entryMap[key];
     final isFuture = date.isAfter(today);
 
-    Color color = const Color(0xFF1A2238);
-    if (isFuture) {
-      color = Colors.transparent;
-    } else if (summary != null && summary.entries.isNotEmpty) {
+    if (isFuture) return Colors.transparent;
+
+    if (summary != null && summary.entries.isNotEmpty) {
       final dominant = summary.dominantEmotion;
       if (dominant != null) {
-        final intensity = (summary.averageIntensity / 5).clamp(0.2, 1.0);
-        color = dominant.palette.edge.withValues(alpha: 0.3 + intensity * 0.6);
+        final intensity =
+            (summary.averageIntensity / 5).clamp(0.2, 1.0);
+        return dominant.palette.edge
+            .withValues(alpha: 0.3 + intensity * 0.6);
       }
     }
 
-    return Container(
-      width: 14,
-      height: 14,
-      margin: const EdgeInsets.all(1.5),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(3),
-      ),
-    );
+    return const Color(0xFF1A2238);
   }
 
   Widget _buildBackupSection() {
@@ -510,29 +589,44 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       decoration: BoxDecoration(
         color: const Color(0xFF111729),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: color,
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(12),
             ),
+            child: Icon(icon, size: 20, color: color),
           ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.white.withValues(alpha: .4),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: .45),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

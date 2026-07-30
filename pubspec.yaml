@@ -1,7 +1,7 @@
 name: emotion_galaxy
 description: "情绪星海：以动态星系与液态光球呈现每日情绪记录的 Flutter Android 应用。"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.12.2
@@ -25,6 +25,8 @@ flutter_launcher_icons:
   android: true
   image_path: "assets/icon.png"
   min_sdk_android: 24
+  adaptive_icon_background: "#0A0E1A"
+  adaptive_icon_foreground: "assets/icon.png"
 
 flutter:
   uses-material-design: true
