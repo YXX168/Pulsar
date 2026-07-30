@@ -42,21 +42,29 @@ class _HistoryPageState extends State<HistoryPage> {
     super.dispose();
   }
 
-  void _onRefreshSignal() => _loadMonth();
+  void _onRefreshSignal() {
+    _loadMonth().catchError((_) {});
+  }
 
   Future<void> _loadMonth() async {
     setState(() => _loading = true);
-    final summaries =
-        await widget.storage.loadDailySummaries(_focusedMonth.year, _focusedMonth.month);
-    final map = <String, List<EmotionEntry>>{};
-    for (final s in summaries) {
-      map[s.dateKey] = s.entries;
-    }
-    if (mounted) {
-      setState(() {
-        _monthEntries = map;
-        _loading = false;
-      });
+    try {
+      final summaries =
+          await widget.storage.loadDailySummaries(_focusedMonth.year, _focusedMonth.month);
+      final map = <String, List<EmotionEntry>>{};
+      for (final s in summaries) {
+        map[s.dateKey] = s.entries;
+      }
+      if (mounted) {
+        setState(() {
+          _monthEntries = map;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

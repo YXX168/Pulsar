@@ -90,22 +90,28 @@ class _RecordPageState extends State<RecordPage> {
         await widget.storage.addEntry(entry);
       }
 
+      // 触觉反馈（fire-and-forget，不阻塞后续逻辑）
       Haptics.success();
 
       if (!mounted) return;
 
       if (widget.popOnSave) {
+        // push 场景：pop 返回上一页
         Navigator.of(context).pop(true);
       } else {
+        // tab 场景：先通知父级刷新数据（onSaved 内部会延迟到
+        // 下一帧切换页面），然后重置表单并显示提示
+        widget.onSaved?.call();
         _resetForm();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('情绪记录已保存'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('情绪记录已保存'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       }
-      widget.onSaved?.call();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

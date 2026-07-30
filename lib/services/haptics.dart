@@ -17,24 +17,32 @@ class Haptics {
   /// 选择情绪类型时触发 — 轻触反馈。
   static Future<void> selection() async {
     if (!_enabled) return;
-    await HapticFeedback.selectionClick();
+    try {
+      await HapticFeedback.selectionClick();
+    } catch (_) {}
   }
 
   /// 点击光球 / 按钮时触发 — 中等反馈。
   static Future<void> tap() async {
     if (!_enabled) return;
-    await HapticFeedback.lightImpact();
+    try {
+      await HapticFeedback.lightImpact();
+    } catch (_) {}
   }
 
   /// 保存记录成功时触发 — 强烈反馈。
   static Future<void> success() async {
     if (!_enabled) return;
-    await HapticFeedback.mediumImpact();
+    try {
+      await HapticFeedback.mediumImpact();
+    } catch (_) {}
   }
 
   /// 删除记录时触发 — 重反馈。
   static Future<void> heavy() async {
     if (!_enabled) return;
-    await HapticFeedback.heavyImpact();
+    try {
+      await HapticFeedback.heavyImpact();
+    } catch (_) {}
   }
 }

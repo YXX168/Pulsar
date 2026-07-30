@@ -41,15 +41,23 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  void _onRefreshSignal() => _loadTodayEntries();
+  void _onRefreshSignal() {
+    _loadTodayEntries().catchError((_) {});
+  }
 
   Future<void> _loadTodayEntries() async {
-    final entries = await widget.storage.loadEntriesForDate(DateTime.now());
-    if (mounted) {
-      setState(() {
-        _todayEntries = entries;
-        _loading = false;
-      });
+    try {
+      final entries = await widget.storage.loadEntriesForDate(DateTime.now());
+      if (mounted) {
+        setState(() {
+          _todayEntries = entries;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

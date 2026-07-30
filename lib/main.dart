@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import 'services/haptics.dart';
@@ -13,7 +16,22 @@ import 'pages/stats_page.dart';
 /// 参考 Pulsar 的设计：深空背景、Material 3 暗色主题、
 /// 底部导航切换四个主页面，全局共享动画时钟。
 void main() {
+  // 确保绑定初始化
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 捕获 Flutter 框架错误（渲染异常、断言失败等）
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    // 在 release 模式下，框架错误不会自动显示红屏，
+    // 这里确保不会因为未捕获的渲染错误导致黑屏
+  };
+
+  // 捕获所有未处理的异步错误，防止 release 模式下崩溃黑屏
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    // 返回 true 表示错误已处理，不会传播到上层
+    return true;
+  };
+
   runApp(const EmotionGalaxyApp());
 }
 
@@ -91,8 +109,15 @@ class _EmotionGalaxyShellState extends State<EmotionGalaxyShell> {
         storage: _storage,
         popOnSave: false,
         onSaved: () {
+          // 先触发数据刷新（各页面监听此信号重新加载数据）
           _refreshSignal.value++;
-          setState(() => _currentIndex = 0);
+          // 延迟到下一帧切换页面，避免在 _save() 执行过程中
+          // 调用 setState 导致的时序冲突
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() => _currentIndex = 0);
+            }
+          });
         },
       ),
       HistoryPage(storage: _storage, refreshSignal: _refreshSignal),

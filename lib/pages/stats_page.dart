@@ -39,30 +39,38 @@ class _StatsPageState extends State<StatsPage> {
     super.dispose();
   }
 
-  void _onRefreshSignal() => _loadStats();
+  void _onRefreshSignal() {
+    _loadStats().catchError((_) {});
+  }
 
   Future<void> _loadStats() async {
-    final stats = await widget.storage.loadStats(days: 30);
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day)
-        .subtract(const Duration(days: 83));
-    final entries = await widget.storage.loadEntriesInRange(start: start);
+    try {
+      final stats = await widget.storage.loadStats(days: 30);
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month, now.day)
+          .subtract(const Duration(days: 83));
+      final entries = await widget.storage.loadEntriesInRange(start: start);
 
-    final grouped = <String, List<EmotionEntry>>{};
-    for (final e in entries) {
-      grouped.putIfAbsent(e.dateKey, () => []).add(e);
-    }
-    final heatmap = grouped.entries
-        .map((e) => DailySummary(dateKey: e.key, entries: e.value))
-        .toList()
-      ..sort((a, b) => a.dateKey.compareTo(b.dateKey));
+      final grouped = <String, List<EmotionEntry>>{};
+      for (final e in entries) {
+        grouped.putIfAbsent(e.dateKey, () => []).add(e);
+      }
+      final heatmap = grouped.entries
+          .map((e) => DailySummary(dateKey: e.key, entries: e.value))
+          .toList()
+        ..sort((a, b) => a.dateKey.compareTo(b.dateKey));
 
-    if (mounted) {
-      setState(() {
-        _stats = stats;
-        _heatmap = heatmap;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _stats = stats;
+          _heatmap = heatmap;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
