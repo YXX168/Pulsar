@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../models/emotion_entry.dart';
+import '../services/haptics.dart';
 import '../services/storage.dart';
 import '../widgets/emotion_orb.dart';
 
@@ -410,6 +411,7 @@ class _StatsPageState extends State<StatsPage> {
       final dir = await FilePicker.platform.getDirectoryPath();
       if (dir == null) return;
       final path = await widget.storage.exportBackup(dir);
+      await Haptics.success();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -432,6 +434,7 @@ class _StatsPageState extends State<StatsPage> {
       if (result == null || result.files.single.path == null) return;
 
       final count = await widget.storage.restoreBackup(result.files.single.path!);
+      await Haptics.success();
       await _loadStats();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

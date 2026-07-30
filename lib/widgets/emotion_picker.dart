@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/emotion.dart';
+import '../services/haptics.dart';
 import 'emotion_orb.dart';
 
 /// 情绪选择器，展示 9 种情绪类型的光球网格。
@@ -111,7 +112,10 @@ class IntensitySelector extends StatelessWidget {
             return GestureDetector(
               onTap: onChanged == null
                   ? null
-                  : () => onChanged!(level.value),
+                  : () {
+                      Haptics.tap();
+                      onChanged!(level.value);
+                    },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 width: 48,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'services/haptics.dart';
 import 'services/storage.dart';
 import 'widgets/emotion_orb.dart';
 import 'pages/home_page.dart';
@@ -105,7 +106,12 @@ class _EmotionGalaxyShellState extends State<EmotionGalaxyShell> {
         ),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: (index) {
+            if (index != _currentIndex) {
+              Haptics.selection();
+              setState(() => _currentIndex = index);
+            }
+          },
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.auto_awesome_rounded),

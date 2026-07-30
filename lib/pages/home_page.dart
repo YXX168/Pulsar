@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/emotion_entry.dart';
+import '../services/haptics.dart';
 import '../services/storage.dart';
 import '../widgets/emotion_orb.dart';
 import '../widgets/galaxy_scene.dart';
@@ -96,6 +97,7 @@ class _HomePageState extends State<HomePage> {
             bottom: 20,
             child: FloatingActionButton(
               onPressed: () async {
+                await Haptics.tap();
                 await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) =>

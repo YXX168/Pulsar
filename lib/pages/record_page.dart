@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/emotion.dart';
 import '../models/emotion_entry.dart';
+import '../services/haptics.dart';
 import '../services/storage.dart';
 import '../widgets/emotion_orb.dart';
 import '../widgets/emotion_picker.dart';
@@ -48,12 +49,15 @@ class _RecordPageState extends State<RecordPage> {
 
   Future<void> _save() async {
     if (_selected == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('请先选择一种情绪'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      await Haptics.heavy();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('请先选择一种情绪'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
 
@@ -77,6 +81,8 @@ class _RecordPageState extends State<RecordPage> {
       );
       await widget.storage.addEntry(entry);
     }
+
+    await Haptics.success();
 
     if (mounted) {
       setState(() => _saving = false);
@@ -157,7 +163,10 @@ class _RecordPageState extends State<RecordPage> {
             // 情绪选择器
             EmotionPicker(
               selected: _selected,
-              onSelected: (type) => setState(() => _selected = type),
+              onSelected: (type) {
+                Haptics.selection();
+                setState(() => _selected = type);
+              },
               orbSize: 64,
             ),
             const SizedBox(height: 40),
@@ -166,7 +175,10 @@ class _RecordPageState extends State<RecordPage> {
             IntensitySelector(
               value: _intensity,
               palette: _selected?.palette,
-              onChanged: (v) => setState(() => _intensity = v),
+              onChanged: (v) {
+                Haptics.tap();
+                setState(() => _intensity = v);
+              },
             ),
             const SizedBox(height: 40),
 
@@ -253,6 +265,7 @@ class _RecordPageState extends State<RecordPage> {
             final isSelected = _tags.contains(tag);
             return GestureDetector(
               onTap: () {
+                Haptics.tap();
                 setState(() {
                   if (isSelected) {
                     _tags.remove(tag);

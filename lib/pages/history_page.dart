@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/emotion.dart';
 import '../models/emotion_entry.dart';
+import '../services/haptics.dart';
 import '../services/storage.dart';
 import '../widgets/emotion_orb.dart';
 import 'record_page.dart';
@@ -46,6 +47,7 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   void _changeMonth(int delta) {
+    Haptics.tap();
     setState(() {
       _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + delta);
     });
@@ -176,7 +178,10 @@ class _HistoryPageState extends State<HistoryPage> {
               }
 
               return GestureDetector(
-                onTap: () => setState(() => _selectedDate = date),
+                onTap: () {
+                  Haptics.selection();
+                  setState(() => _selectedDate = date);
+                },
                 child: Container(
                   margin: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
@@ -271,6 +276,7 @@ class _HistoryPageState extends State<HistoryPage> {
             child: const Icon(Icons.delete_outline_rounded, color: Colors.red),
           ),
           onDismissed: (_) async {
+            await Haptics.heavy();
             await widget.storage.deleteEntry(e.id);
             _loadMonth();
             if (mounted) {
@@ -286,6 +292,7 @@ class _HistoryPageState extends State<HistoryPage> {
             entry: e,
             type: type,
             onTap: () async {
+              await Haptics.tap();
               await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>
