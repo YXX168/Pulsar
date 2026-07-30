@@ -157,27 +157,23 @@ class GalaxyScenePainter extends CustomPainter {
       final tailLength = 30 + comet * 10;
       final tailDx = -tailLength * .8;
       final tailDy = -tailLength * .5;
+      final tailStart = Offset(cx + tailDx, cy + tailDy);
+      final tailEnd = Offset(cx, cy);
       canvas.drawLine(
-        Offset(cx + tailDx, cy + tailDy),
-        Offset(cx, cy),
+        tailStart,
+        tailEnd,
         Paint()
           ..strokeCap = StrokeCap.round
           ..strokeWidth = 1.2
           ..shader = LinearGradient(
-            begin: Alignment(
-              (tailDx.isNegative ? 1 : -1).toDouble(),
-              (tailDy.isNegative ? 1 : -1).toDouble(),
-            ),
-            end: Alignment.zero,
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
             colors: [
               Colors.transparent,
               const Color(0xFFAEDFFF).withValues(alpha: .6),
               const Color(0xFFD6F3FF),
             ],
-          ).createShader(Rect.fromPoints(
-            Offset(cx + tailDx, cy + tailDy),
-            Offset(cx, cy),
-          )),
+          ).createShader(Rect.fromPoints(tailStart, tailEnd)),
       );
       // 流星头部
       canvas.drawCircle(
