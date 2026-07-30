@@ -81,9 +81,8 @@ class EmotionStorage {
     }
     try {
       final entries = (jsonDecode(raw) as List)
-          .whereType<Map>()
-          .map((e) =>
-              EmotionEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+          .whereType<Map<String, dynamic>>()
+          .map(EmotionEntry.fromJson)
           .toList();
       if (databaseRaw == null) await saveEntries(entries);
       return entries;
@@ -258,9 +257,8 @@ class EmotionStorage {
     final data = jsonDecode(raw) as Map<String, dynamic>;
 
     final entriesList = (data['entries'] as List? ?? const [])
-        .whereType<Map>()
-        .map((e) =>
-            EmotionEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+        .whereType<Map<String, dynamic>>()
+        .map(EmotionEntry.fromJson)
         .toList();
 
     await saveEntries(entriesList);
