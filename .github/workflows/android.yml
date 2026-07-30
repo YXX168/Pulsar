@@ -44,7 +44,7 @@ jobs:
 
       - name: Decode signing keystore
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/emotion-galaxy.jks
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/emotion-galaxy.jks
           printf 'storeFile=emotion-galaxy.jks\nkeyAlias=%s\nkeyPassword=%s\nstorePassword=%s\n' \
             "$KEY_ALIAS" "$KEY_PASSWORD" "$KEYSTORE_PASSWORD" > android/key.properties
         env:
