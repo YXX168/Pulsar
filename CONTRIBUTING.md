@@ -12,7 +12,7 @@
 
 ### 报告 Bug
 
-- 在提交 Bug 报告前，请先搜索 [现有 Issue](https://github.com/YXX168/EmotionGalaxy/issues)，确认该问题是否已被报告。
+- 在提交 Bug 报告前，请先搜索 [现有 Issue](https://github.com/YXX168/Pulsar/issues)，确认该问题是否已被报告。
 - 使用项目提供的 **Bug 报告模板** 创建新 Issue，并尽可能详细地填写复现步骤、期望行为与实际行为。
 - 附上相关的日志、截图以及你的运行环境信息（Flutter 版本、Android 设备等）。
 
@@ -20,7 +20,7 @@
 
 - 同样请先搜索现有 Issue，避免重复提交。
 - 使用 **功能请求模板** 创建新 Issue，清晰描述你希望解决的问题与期望的解决方案。
-- 你也可以在 [Discussions](https://github.com/YXX168/EmotionGalaxy/discussions) 中发起讨论。
+- 请在 [Issues](https://github.com/YXX168/Pulsar/issues) 中说明建议的使用场景。
 
 ### 贡献代码
 
@@ -29,8 +29,8 @@
 2. **克隆到本地**：
 
    ```bash
-   git clone https://github.com/<你的用户名>/EmotionGalaxy.git
-   cd EmotionGalaxy
+   git clone https://github.com/<你的用户名>/Pulsar.git
+   cd Pulsar
    ```
 
 3. **创建分支**：请基于 `main` 分支创建新的功能分支。
@@ -43,6 +43,7 @@
 
    ```bash
    flutter pub get
+   dart run flutter_launcher_icons
    ```
 
 5. **编写代码**：遵循下方的代码规范。
@@ -74,7 +75,7 @@
 ### Dart 代码
 
 - 遵循 [Dart 官方代码风格指南](https://dart.dev/guides/language/effective-dart/style)。
-- 使用 `flutter format .` 格式化代码。
+- 使用 `dart format lib test` 格式化代码。
 - 提交前运行 `flutter analyze`，确保无静态分析错误。
 - 为公开的类与方法编写文档注释（`///`）。
 
@@ -135,7 +136,7 @@ docs: 补充存储服务的 API 说明
 
 如果你在贡献过程中遇到任何问题，欢迎：
 
-- 在 [Discussions](https://github.com/YXX168/EmotionGalaxy/discussions) 中提问。
+- 在 [Issues](https://github.com/YXX168/Pulsar/issues) 中提问。
 - 在相关 Issue 下留言。
 
 再次感谢你的贡献！

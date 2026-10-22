@@ -67,8 +67,8 @@
 
 ### 环境要求
 
-- Flutter 3.x（稳定通道）
-- Dart 3.x
+- Flutter 稳定通道，内置 Dart 版本须满足下方约束（与 CI 一致）
+- Dart `>=3.12.2 <4.0.0`（见 `pubspec.yaml`）
 - Android Studio / VS Code
 - Android SDK（compileSdk 由 Flutter 配置，minSdk 24）
 - JDK 17
@@ -77,19 +77,22 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/YXX168/EmotionGalaxy.git
-cd EmotionGalaxy
+git clone https://github.com/YXX168/Pulsar.git
+cd Pulsar
 
 # 2. 获取依赖
 flutter pub get
 
-# 3. 静态分析
+# 3. 生成 Android 启动图标（干净检出后必须执行）
+dart run flutter_launcher_icons
+
+# 4. 静态分析
 flutter analyze
 
-# 4. 运行测试
+# 5. 运行测试
 flutter test
 
-# 5. 在设备或模拟器上运行
+# 6. 在设备或模拟器上运行
 flutter run
 ```
 
@@ -105,10 +108,14 @@ flutter build apk --release
 
 构建产物位于 `build/app/outputs/flutter-apk/`。
 
+PR 检查执行分析、测试和 Debug APK 构建，无需正式签名密钥。`main` 构建使用仓库中配置的正式签名，并上传对应提交的 APK；推送与源码版本一致的 `v*` 标签后由发布工作流创建 [GitHub Release](https://github.com/YXX168/Pulsar/releases)。Actions 附件保留 14 天，Debug 附件不能用作正式版覆盖更新。
+
+本地 Release 构建在缺少 `android/key.properties` 时会回退到调试签名，仅适合验证。正式更新必须使用原发布密钥及应用包名 `com.emotion.galaxy`，请勿为更新重新生成密钥。
+
 ## 目录结构
 
 ```
-EmotionGalaxy/
+Pulsar/
 ├── android/                          # Android 原生配置
 │   ├── app/
 │   │   ├── build.gradle.kts          # App 模块构建脚本
