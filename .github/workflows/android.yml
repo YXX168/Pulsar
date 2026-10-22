@@ -6,10 +6,18 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: pulsar-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    timeout-minutes: 35
 
     steps:
       - name: Checkout repository
@@ -43,8 +51,16 @@ jobs:
         run: flutter test
 
       - name: Decode signing keystore
+        if: github.event_name != 'pull_request'
+        shell: bash
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/emotion-galaxy.jks
+          for value in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!value}" ]]; then
+              echo "Required signing secret ${value} is missing."
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/emotion-galaxy.jks
           printf 'storeFile=emotion-galaxy.jks\nkeyAlias=%s\nkeyPassword=%s\nstorePassword=%s\n' \
             "$KEY_ALIAS" "$KEY_PASSWORD" "$KEYSTORE_PASSWORD" > android/key.properties
         env:
@@ -53,11 +69,32 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Build PR debug APK
+        if: github.event_name == 'pull_request'
+        run: flutter build apk --debug --target-platform android-arm64
+
       - name: Build signed APK
+        if: github.event_name != 'pull_request'
         run: flutter build apk --release --target-platform android-arm64
 
-      - name: Upload APK artifact
+      - name: Upload PR debug APK
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: emotion-galaxy-apk
+          name: Pulsar-debug-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload signed APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulsar-release-${{ github.sha }}
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/app/emotion-galaxy.jks android/key.properties
